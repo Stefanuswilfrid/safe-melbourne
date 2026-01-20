@@ -1,18 +1,6 @@
 {
-    "buildCommand": "prisma generate && next build",
-    "outputDirectory": ".next",
-    "framework": "nextjs",
-    "functions": {
-      "src/app/api/**/route.ts": { "maxDuration": 300 },
-      "src/app/api/rss/fetch/route.ts": { "maxDuration": 300 },
-      "src/app/api/rss/cron/route.ts": { "maxDuration": 300 },
-      "src/app/api/scrape/cron/route.ts": { "maxDuration": 300 }
-    },
-    "crons": [
-      { "path": "/api/scrape/cron", "schedule": "0 */5 * * *" }
-    ],
-    "env": {
-      "PRISMA_GENERATE_DATAPROXY": "true",
-      "PRISMA_GENERATE_SKIP_DOWNLOAD": "true"
-    }
+  "buildCommand": "prisma generate && next build",
+  "crons": [
+    { "path": "/api/scrape/cron", "schedule": "0 */5 * * *" }
+  ]
 }

@@ -29,18 +29,18 @@ export async function extractLocationFromArticle(title: string, content: string)
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    const prompt = `Extract the specific location mentioned in this Indonesian protest news/video. Focus on finding the exact place where the protest is happening.
+    const prompt = `Extract the specific location mentioned in this Melbourne/Victoria (Australia) protest news/video. Focus on finding the exact place where the protest is happening.
 
 Title: ${title}
 Content: ${content}
 
-Return ONLY the location name in Indonesian, without any additional text. If no specific location is mentioned, return "unknown".
+Return ONLY the location name (in English), without any additional text. If no specific location is mentioned, return "unknown".
 
 Examples:
-- "Kerusuhan di depan Polda Bali" → "Polda Bali"
-- "Demo mahasiswa di Gedung DPR RI Jakarta" → "Gedung DPR RI Jakarta"
-- "Aksi massa tolak kenaikan BBM di Monas" → "Monas"
-- "Bentrok antara mahasiswa dan polisi di Yogyakarta" → "Yogyakarta"`;
+- "Protest outside Parliament House in Melbourne" -> "Parliament House Victoria, Melbourne"
+- "Demonstration at Federation Square this afternoon" -> "Federation Square, Melbourne"
+- "March near Flinders Street Station" -> "Flinders Street Station, Melbourne"
+- "Rally in Melbourne CBD on Swanston Street" -> "Swanston St, Melbourne CBD"`;
 
     const completion = await client.chat.completions.create({
       model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",
@@ -265,7 +265,7 @@ async function extractDetailedLocationFromTikTokInternal(videoData: any): Promis
     // First, try to extract location from text content
     console.log(`📝 Extracting location from text: "${title}"`);
 
-    const textPrompt = `You are a location extraction expert specializing in Indonesian protest locations. Analyze this TikTok video about protests/demonstrations.
+    const textPrompt = `You are a location extraction expert specializing in Melbourne/Victoria (Australia) protest locations. Analyze this TikTok video about protests/demonstrations.
 
 VIDEO DATA:
 Title: "${title}"
@@ -274,99 +274,44 @@ Music: "${music_info?.title || 'Unknown'}"
 Region: "${region || 'Unknown'}"
 
 CRITICAL RULES - READ CAREFULLY:
-1. NEVER assume Jakarta unless EXPLICITLY mentioned in the text
-2. Be extremely specific about Indonesian geography and provinces
-3. DPRD = Dewan Perwakilan Rakyat Daerah (Regional Parliament)
-4. Each province has its own DPRD (DPRD Jawa Barat, DPRD NTB, DPRD Bali, etc.)
-5. NTB = Nusa Tenggara Barat (West Nusa Tenggara) - COMPLETELY different from Jakarta
-6. NTT = Nusa Tenggara Timur (East Nusa Tenggara) - different island
-7. Bali, Lombok, Sumbawa are in NTB province
-8. Mataram is the capital of NTB province
+1. NEVER assume Melbourne unless EXPLICITLY mentioned in the text
+2. Be extremely specific about Australian geography (city/suburb/state)
+3. VIC = Victoria (state); CBD = Central Business District
+4. Prefer the most specific identifiable place (building/landmark > street > suburb > city > state)
+5. If multiple locations are mentioned, choose the one that is most likely the protest gathering point
 
 LOCATION PRIORITY (most specific first):
-1. Government buildings with province: "DPRD NTB Mataram", "Polda Bali Denpasar"
-2. City + Province: "Mataram, NTB", "Denpasar, Bali"
-3. Province only: "Nusa Tenggara Barat", "Jawa Barat"
-4. General city names: "Jakarta", "Bandung", "Surabaya"
+1. Specific venue/building: "Parliament House Victoria", "Melbourne Town Hall", "State Library Victoria"
+2. Landmark: "Federation Square", "Flinders Street Station", "Shrine of Remembrance", "NGV"
+3. Street + area: "Swanston St, Melbourne CBD", "Bourke St Mall, Melbourne"
+4. Suburb + state: "Carlton VIC", "Fitzroy VIC", "Richmond VIC"
+5. City/state only: "Melbourne", "Victoria"
 
-INDONESIAN PROVINCES AND THEIR CAPITALS:
-- DKI Jakarta: Jakarta Pusat
-- Jawa Barat: Bandung
-- Jawa Tengah: Semarang
-- Jawa Timur: Surabaya
-- Banten: Serang
-- Bali: Denpasar
-- Nusa Tenggara Barat (NTB): Mataram
-- Nusa Tenggara Timur (NTT): Kupang
-- Sumatera Utara: Medan
-- Sumatera Barat: Padang
-- Riau: Pekanbaru
-- Kepulauan Riau: Tanjung Pinang
-- Jambi: Jambi
-- Sumatera Selatan: Palembang
-- Bengkulu: Bengkulu
-- Lampung: Bandar Lampung
-- Bangka Belitung: Pangkal Pinang
-- Kalimantan Barat: Pontianak
-- Kalimantan Tengah: Palangka Raya
-- Kalimantan Selatan: Banjarmasin
-- Kalimantan Timur: Samarinda
-- Kalimantan Utara: Tanjung Selor
-- Sulawesi Utara: Manado
-- Sulawesi Tengah: Palu
-- Sulawesi Selatan: Makassar
-- Sulawesi Tenggara: Kendari
-- Gorontalo: Gorontalo
-- Sulawesi Barat: Mamuju
-- Maluku: Ambon
-- Maluku Utara: Sofifi
-- Papua Barat: Manokwari
-- Papua: Jayapura
-- Papua Tengah: Nabire
-- Papua Pegunungan: Jayawijaya
-- Papua Selatan: Merauke
-- Papua Barat Daya: Sorong
-- Aceh: Banda Aceh
+MELBOURNE / VICTORIA LOCATION HINTS:
+- Parliament House Victoria is on Spring St, East Melbourne
+- Common protest areas: Melbourne CBD, Parliament precinct, Fed Square, State Library
+- Key stations: Flinders Street Station, Southern Cross Station
+- Nearby cities sometimes mentioned: Geelong, Ballarat, Bendigo
+- Common suburbs: Carlton, Fitzroy, Richmond, Southbank, Docklands, St Kilda
 
 VALIDATION CHECKS:
-- If you see "DPRD NTB" → This is in Mataram, NTB (NOT Jakarta)
-- If you see "DPRD Bali" → This is in Denpasar, Bali (NOT Jakarta)
-- If you see "DPRD Jabar" → This is in Bandung, Jawa Barat (NOT Jakarta)
-- If you see "DPRD Jateng" → This is in Semarang, Jawa Tengah (NOT Jakarta)
-- If you see "DPRD Jatim" → This is in Surabaya, Jawa Timur (NOT Jakarta)
-- If you see "DPRD Sumut" → This is in Medan, Sumatera Utara (NOT Jakarta)
-- If you see "DPRD Sumbar" → This is in Padang, Sumatera Barat (NOT Jakarta)
-- If you see "DPRD Sumsel" → This is in Palembang, Sumatera Selatan (NOT Jakarta)
-- If you see "DPRD Sulsel" → This is in Makassar, Sulawesi Selatan (NOT Jakarta)
-- If you see "DPRD Kaltim" → This is in Samarinda, Kalimantan Timur (NOT Jakarta)
-- If text mentions "Mataram" → This is NTB, not Jakarta
-- If text mentions "Lombok" or "Sumbawa" → This is NTB, not Jakarta
-- If text mentions "Denpasar" → This is Bali, not Jakarta
-- If text mentions "Bandung" → This is Jawa Barat, not Jakarta
-- If text mentions "Surabaya" → This is Jawa Timur, not Jakarta
-- If text mentions "Medan" → This is Sumatera Utara, not Jakarta
-- If text mentions "Makassar" → This is Sulawesi Selatan, not Jakarta
-- If text mentions "Samarinda" → This is Kalimantan Timur, not Jakarta
-- If text mentions "Manado" → This is Sulawesi Utara, not Jakarta
-- If text mentions "Jayapura" → This is Papua, not Jakarta
-- If text mentions "Ambon" → This is Maluku, not Jakarta
+-- If you see "VIC" or "Victoria" → prefer the Victorian location context
+-- If you see "CBD" → interpret as Melbourne CBD unless another city is clearly specified
+-- If a landmark/station is mentioned, prefer that over a generic city label
 
 RESPONSE FORMAT (JSON only):
 {
-  "exact_location": "DPRD NTB Mataram, Nusa Tenggara Barat" | null,
-  "all_locations": ["DPRD NTB", "Mataram", "Nusa Tenggara Barat"],
+  "exact_location": "Parliament House Victoria, Melbourne VIC" | null,
+  "all_locations": ["Parliament House Victoria", "Spring St", "Melbourne", "VIC"],
   "confidence": 0.95
 }
 
 EXAMPLES:
-✅ "Demo di DPRD NTB Mataram" → {"exact_location": "DPRD NTB, Mataram", "all_locations": ["DPRD NTB", "Mataram", "Nusa Tenggara Barat"], "confidence": 0.95}
-✅ "Kerusuhan DPRD Bali Denpasar" → {"exact_location": "DPRD Bali, Denpasar", "all_locations": ["DPRD Bali", "Denpasar", "Bali"], "confidence": 0.95}
-✅ "Aksi DPRD Jabar Bandung" → {"exact_location": "DPRD Jabar, Bandung", "all_locations": ["DPRD Jabar", "Bandung", "Jawa Barat"], "confidence": 0.95}
-✅ "Demo DPRD Sumut Medan" → {"exact_location": "DPRD Sumatera Utara, Medan", "all_locations": ["DPRD Sumut", "Medan", "Sumatera Utara"], "confidence": 0.95}
-✅ "Kerusuhan DPRD Sulsel Makassar" → {"exact_location": "DPRD Sulawesi Selatan, Makassar", "all_locations": ["DPRD Sulsel", "Makassar", "Sulawesi Selatan"], "confidence": 0.95}
-✅ "Aksi massa DPRD Kaltim Samarinda" → {"exact_location": "DPRD Kalimantan Timur, Samarinda", "all_locations": ["DPRD Kaltim", "Samarinda", "Kalimantan Timur"], "confidence": 0.95}
-✅ "Demo mahasiswa di Universitas Papua Jayapura" → {"exact_location": "Universitas Papua, Jayapura", "all_locations": ["Universitas Papua", "Jayapura", "Papua"], "confidence": 0.9}
-❌ "Demo mahasiswa hari ini" → {"exact_location": null, "all_locations": [], "confidence": 0.0}
+✅ "Protest at Parliament House" → {"exact_location": "Parliament House Victoria, Melbourne VIC", "all_locations": ["Parliament House Victoria", "Spring St", "Melbourne", "VIC"], "confidence": 0.95}
+✅ "Rally at Fed Square" → {"exact_location": "Federation Square, Melbourne VIC", "all_locations": ["Federation Square", "Melbourne", "VIC"], "confidence": 0.95}
+✅ "March along Swanston St in the CBD" → {"exact_location": "Swanston St, Melbourne CBD", "all_locations": ["Swanston St", "Melbourne CBD", "Melbourne", "VIC"], "confidence": 0.9}
+✅ "Gathering outside Flinders Street Station" → {"exact_location": "Flinders Street Station, Melbourne VIC", "all_locations": ["Flinders Street Station", "Melbourne", "VIC"], "confidence": 0.95}
+❌ "Protest happening today" → {"exact_location": null, "all_locations": [], "confidence": 0.0}
 
 Return ONLY valid JSON:`;
 
@@ -400,92 +345,48 @@ Return ONLY valid JSON:`;
     if (cover) {
       console.log(`🖼️ Analyzing cover image: ${cover}`);
 
-      const imagePrompt = `You are a location identification expert specializing in Indonesian protest locations. Analyze this TikTok video cover image and identify the exact location shown.
+      const imagePrompt = `You are a location identification expert specializing in Melbourne/Victoria (Australia) protest locations. Analyze this TikTok video cover image and identify the exact location shown.
 
-This is a TikTok video about protests/demonstrations in Indonesia. Look for:
+This is a TikTok video about protests/demonstrations in Melbourne/Victoria, Australia. Look for:
 
 LOCATION IDENTIFIERS:
-- Government buildings: DPR RI, MPR, Istana Negara, Polda, Kodam, KPK, MK, BPK
-- Regional parliaments: DPRD (DPRD NTB, DPRD Bali, DPRD Jabar, etc.)
-- Famous landmarks: Monas, Bundaran HI, Patung Kuda, Istiqlal Mosque, Cathedral
-- Street signs: Jl. Sudirman, Jl. Thamrin, Jl. Gatot Subroto, etc.
-- District names: Jakarta Pusat, Mataram NTB, Denpasar Bali, Bandung Jabar, etc.
-- Police stations: Mapolda, Polres, Polsek
-- Universities: UI, UGM, ITB, UNPAD, etc.
+- Government buildings: Parliament House Victoria, Melbourne Town Hall, Supreme Court of Victoria
+- Police: Victoria Police (stations/HQ), "POLICE" signage, "Victoria Police" markings
+- Famous landmarks: Federation Square, Flinders Street Station, Southern Cross Station, Shrine of Remembrance, NGV, Arts Centre Melbourne, MCG, Rod Laver Arena
+- Street signs: Swanston St, Collins St, Bourke St, Elizabeth St, Flinders St, Spring St, St Kilda Rd, etc.
+- Area/suburb names: Melbourne CBD, Carlton, Fitzroy, Richmond, Southbank, Docklands, St Kilda, etc.
+- Universities: University of Melbourne, RMIT University, Monash University (Caulfield), etc.
 - Text overlays or signs visible in the image
 
-INDONESIAN GEOGRAPHY - CRITICAL RULES:
-1. NTB = Nusa Tenggara Barat (West Nusa Tenggara) - islands like Lombok, Sumbawa, Mataram
-2. NTT = Nusa Tenggara Timur (East Nusa Tenggara) - islands like Flores, Timor
-3. Bali is a separate province from NTB/NTT
-4. Jabar = Jawa Barat (West Java) - includes Bandung, Bogor, etc.
-5. NEVER assume Jakarta unless you see "Jakarta" explicitly
-6. Each province has its own DPRD building in its capital city
+AUSTRALIAN GEOGRAPHY - CRITICAL RULES:
+1. VIC = Victoria (state); NSW = New South Wales (state)
+2. CBD = Central Business District (usually Melbourne CBD here)
+3. NEVER assume Melbourne unless you see "Melbourne" / "VIC" explicitly, or the landmark is uniquely Melbourne
+4. If a suburb is mentioned, include it with "VIC" when possible
 
-INDONESIAN PROVINCIAL CAPITALS:
-- DKI Jakarta: Jakarta (but specify Jakarta Pusat/Utara/Selatan/Timur/Barat)
-- Jawa Barat: Bandung
-- Jawa Tengah: Semarang
-- Jawa Timur: Surabaya
-- Banten: Serang
-- Bali: Denpasar
-- Nusa Tenggara Barat (NTB): Mataram
-- Nusa Tenggara Timur (NTT): Kupang
-- Sumatera Utara: Medan
-- Sumatera Barat: Padang
-- Riau: Pekanbaru
-- Kepulauan Riau: Tanjung Pinang
-- Jambi: Jambi
-- Sumatera Selatan: Palembang
-- Bengkulu: Bengkulu
-- Lampung: Bandar Lampung
-- Bangka Belitung: Pangkal Pinang
-- Kalimantan Barat: Pontianak
-- Kalimantan Tengah: Palangka Raya
-- Kalimantan Selatan: Banjarmasin
-- Kalimantan Timur: Samarinda
-- Kalimantan Utara: Tanjung Selor
-- Sulawesi Utara: Manado
-- Sulawesi Tengah: Palu
-- Sulawesi Selatan: Makassar
-- Sulawesi Tenggara: Kendari
-- Gorontalo: Gorontalo
-- Sulawesi Barat: Mamuju
-- Maluku: Ambon
-- Maluku Utara: Sofifi
-- Papua Barat: Manokwari
-- Papua: Jayapura
-- Papua Tengah: Nabire
-- Papua Pegunungan: Jayawijaya
-- Papua Selatan: Merauke
-- Papua Barat Daya: Sorong
-- Aceh: Banda Aceh
+MELBOURNE / VICTORIA REFERENCE:
+- Common CBD landmarks: Federation Square, Flinders Street Station, State Library Victoria
+- Major roads/areas: Swanston St, Collins St, Bourke St Mall, St Kilda Rd, Spring St
 
-INDONESIAN-SPECIFIC HINTS:
-- Look for "Polda" (Provincial Police HQ) or "Polres" (District Police)
-- "DPRD NTB" = Regional Parliament in Mataram, NTB (NOT Jakarta)
-- "DPRD Bali" = Regional Parliament in Denpasar, Bali (NOT Jakarta)
-- "Bundaran" means roundabout/traffic circle
-- "Jl." means "Jalan" (street)
-- Numbers after street names indicate building/house numbers
+AUSTRALIA-SPECIFIC HINTS:
+- Look for "Victoria Police", "VIC", "Melbourne", "City of Melbourne"
+- Numbers after street names can indicate building/street numbers
+- "St" can mean "Street" or "Saint" depending on context (e.g., St Kilda)
 
 VALIDATION CHECKLIST:
-- If you see "Mataram" in text/signs → This is NTB, not Jakarta
-- If you see "Lombok" or "Sumbawa" → This is NTB, not Jakarta
-- If you see "Denpasar" → This is Bali, not Jakarta
-- If you see "Bandung" → This is Jawa Barat, not Jakarta
-- If you see "DPRD" + province name → Location is in that province's capital
+- If you see "VIC" → include Victoria context
+- If you see "CBD" → interpret as Melbourne CBD unless another city is explicit
+- If you see a landmark/station name, prefer that over generic "Melbourne"
 
 IMPORTANT:
-- Be VERY specific about the location and province
-- Include province information when available
-- If you see a building name or sign, include province context
+- Be VERY specific about the location (landmark/building/street/suburb)
+- Include suburb + state when available (e.g., "Carlton VIC")
 - If you see street names, include them with any numbers
-- Focus ONLY on Indonesian locations
+- Focus ONLY on Australian locations
 - If multiple possible locations, choose the most prominent one
-- NEVER default to Jakarta unless explicitly shown
+- NEVER default to Melbourne unless clearly supported by the image/text
 
-What exact location is shown in this image? Include the city and province if identifiable.`;
+What exact location is shown in this image? Include the suburb/city and state (VIC) if identifiable.`;
 
       try {
         const imageCompletion = await client.chat.completions.create({
@@ -802,41 +703,37 @@ export async function extractLocationFromTweet(tweetText: string, userInfo?: any
       },
     });
 
-    const prompt = `Extract the specific location mentioned in this Indonesian Twitter text about planned protests/demonstrations ("rencana demo"). Focus on finding the exact place where the planned protest will happen.
+    const prompt = `Extract the specific location mentioned in this Twitter text about planned protests/demonstrations in Melbourne/Victoria, Australia. Focus on finding the exact place where the planned protest will happen.
 
 Tweet Text: ${tweetText}
 ${userInfo?.location ? `User Location: ${userInfo.location}` : ''}
 
 CRITICAL RULES - READ CAREFULLY:
-1. NEVER assume Jakarta unless EXPLICITLY mentioned in the text
-2. Look for specific Indonesian government buildings, landmarks, or addresses
-3. Common protest locations: DPR RI, DPRD [Province], Istana Negara, Polda, KPK, MK, BPK
-4. Include province information when available (e.g., "DPRD Jawa Barat", "Polda Bali")
+1. NEVER assume Melbourne unless EXPLICITLY mentioned in the text
+2. Look for specific Australian/Victorian government buildings, landmarks, or addresses
+3. Common protest locations: Parliament House Victoria, State Library Victoria, Federation Square, Flinders Street Station, CBD, Town Hall
+4. Include suburb/city/state information when available (e.g., "Carlton, VIC", "Melbourne CBD", "Spring St, Melbourne")
 5. If multiple locations mentioned, choose the most specific one
 
-INDONESIAN LOCATION PATTERNS:
-- Government buildings: "DPRD NTB", "Polda Bali", "DPR RI Jakarta"
-- Landmarks: "Monas Jakarta", "Bundaran HI", "Gedung Sate Bandung"
-- Universities: "UI Depok", "UGM Yogyakarta", "ITB Bandung"
-- Streets: "Jl. Sudirman Jakarta", "Jl. Asia Afrika Bandung"
+MELBOURNE / VICTORIA LOCATION PATTERNS:
+- Government buildings: "Parliament House", "Supreme Court of Victoria", "Victoria Police HQ"
+- Landmarks: "Federation Square", "Flinders Street Station", "State Library Victoria", "Arts Centre Melbourne"
+- Universities: "University of Melbourne", "RMIT", "Monash (Caulfield)"
+- Streets/areas: "Swanston St", "Bourke St Mall", "Collins St", "Spring St", "CBD"
 
-PROVINCE CAPITALS TO REMEMBER:
-- NTB (Nusa Tenggara Barat): Mataram
-- Bali: Denpasar
-- Jawa Barat: Bandung
-- Jawa Tengah: Semarang
-- Jawa Timur: Surabaya
-- Sumatera Utara: Medan
-- Sulawesi Selatan: Makassar
+AUSTRALIAN LOCATION HINTS:
+- VIC = Victoria (state); CBD = Central Business District
+- Common suburbs: Carlton, Fitzroy, Richmond, Southbank, Docklands, St Kilda
+- Nearby cities: Geelong, Ballarat, Bendigo
 
-Return ONLY the location name in Indonesian, without any additional text. If no specific location is mentioned, return "unknown".
+Return ONLY the location name (in English), without any additional text. If no specific location is mentioned, return "unknown".
 
 Examples:
-- "Rencana demo di DPRD NTB besok" → "DPRD NTB, Mataram"
-- "Aksi massa di Gedung DPR Jakarta" → "DPR RI, Jakarta"
-- "Demo mahasiswa besok di Polda Bali" → "Polda Bali, Denpasar"
-- "Rencana unjuk rasa di Monas" → "Monas, Jakarta"
-- "Aksi tolak UU di DPRD Jabar Bandung" → "DPRD Jawa Barat, Bandung"`;
+- "Protest at Parliament House this Friday" → "Parliament House Victoria, Melbourne"
+- "Rally at Fed Square today" → "Federation Square, Melbourne"
+- "March along Swanston Street in the CBD" → "Swanston St, Melbourne CBD"
+- "Gathering outside Flinders Street Station" → "Flinders Street Station, Melbourne"
+- "Demo in Carlton near UniMelb" → "University of Melbourne, Carlton VIC"`;
 
     const completion = await client.chat.completions.create({
       model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",

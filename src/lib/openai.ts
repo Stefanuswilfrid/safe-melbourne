@@ -18,41 +18,37 @@ export async function extractLocationFromTweet(
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    const prompt = `Extract the specific location mentioned in this Indonesian Twitter text about planned protests/demonstrations ("rencana demo"). Focus on the exact place where the planned protest will happen.
+    const prompt = `Extract the specific location mentioned in this Twitter text about planned protests/demonstrations in Melbourne/Victoria, Australia. Focus on the exact place where the planned protest will happen.
 
 Tweet Text: ${tweetText}
 ${userInfo?.location ? `User Location: ${userInfo.location}` : ""}
 
 CRITICAL RULES - READ CAREFULLY:
-1. NEVER assume Jakarta unless EXPLICITLY mentioned in the text
-2. Look for specific Indonesian government buildings, landmarks, or addresses
-3. Common protest locations: DPR RI, DPRD [Province], Istana Negara, Polda, KPK, MK, BPK
-4. Include province information when available (e.g., "DPRD Jawa Barat", "Polda Bali")
+1. NEVER assume Melbourne unless EXPLICITLY mentioned in the text
+2. Look for specific Australian/Victorian government buildings, landmarks, or addresses
+3. Common protest locations: Parliament House Victoria, State Library Victoria, Federation Square, Flinders Street Station, CBD, Town Hall
+4. Include suburb/city/state information when available (e.g., "Carlton, VIC", "Melbourne CBD", "Spring St, Melbourne")
 5. If multiple locations are mentioned, choose the most specific one
 
-INDONESIAN LOCATION PATTERNS:
-- Government buildings: "DPRD NTB", "Polda Bali", "DPR RI Jakarta"
-- Landmarks: "Monas Jakarta", "Bundaran HI", "Gedung Sate Bandung"
-- Universities: "UI Depok", "UGM Yogyakarta", "ITB Bandung"
-- Streets: "Jl. Sudirman Jakarta", "Jl. Asia Afrika Bandung"
+MELBOURNE / VICTORIA LOCATION PATTERNS:
+- Government buildings: "Parliament House", "Supreme Court of Victoria", "Victoria Police HQ"
+- Landmarks: "Federation Square", "Flinders Street Station", "State Library Victoria", "Arts Centre Melbourne"
+- Universities: "University of Melbourne", "RMIT", "Monash (Caulfield)"
+- Streets/areas: "Swanston St", "Bourke St Mall", "Collins St", "Spring St", "CBD"
 
-PROVINCE CAPITALS TO REMEMBER:
-- NTB (Nusa Tenggara Barat): Mataram
-- Bali: Denpasar
-- Jawa Barat: Bandung
-- Jawa Tengah: Semarang
-- Jawa Timur: Surabaya
-- Sumatera Utara: Medan
-- Sulawesi Selatan: Makassar
+AUSTRALIAN LOCATION HINTS:
+- VIC = Victoria (state); CBD = Central Business District
+- Common suburbs: Carlton, Fitzroy, Richmond, Southbank, Docklands, St Kilda
+- Nearby cities: Geelong, Ballarat, Bendigo
 
-Return ONLY the location name in Indonesian, without any additional text. If no specific location is mentioned, return "unknown".
+Return ONLY the location name (in English), without any additional text. If no specific location is mentioned, return "unknown".
 
 Examples:
-- "Rencana demo di DPRD NTB besok" → "DPRD NTB, Mataram"
-- "Aksi massa di Gedung DPR Jakarta" → "DPR RI, Jakarta"
-- "Demo mahasiswa besok di Polda Bali" → "Polda Bali, Denpasar"
-- "Rencana unjuk rasa di Monas" → "Monas, Jakarta"
-- "Aksi tolak UU di DPRD Jabar Bandung" → "DPRD Jawa Barat, Bandung"`;
+- "Protest at Parliament House this Friday" → "Parliament House Victoria, Melbourne"
+- "Rally at Fed Square today" → "Federation Square, Melbourne"
+- "March along Swanston Street in the CBD" → "Swanston St, Melbourne CBD"
+- "Gathering outside Flinders Street Station" → "Flinders Street Station, Melbourne"
+- "Demo in Carlton near UniMelb" -> "University of Melbourne, Carlton VIC"`;
 
     // Choose a model you have access to:
     // - "gpt-5" if enabled on your account

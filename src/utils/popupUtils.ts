@@ -1,82 +1,85 @@
 // Function to generate popup HTML for different event types
 export const generatePopupHTML = (properties: any) => {
   if (properties.type === 'warning') {
-    // Special popup for warning markers with Twitter data
+    const source: string = properties.source || 'Unknown';
+    const isTikTok = source === 'TikTok';
+    const isTwitter = source === 'Twitter';
+
     let socialMetrics: any = {};
     let userInfo: any = {};
-    
-    try {
-      socialMetrics = JSON.parse(properties.socialMetrics || '{}');
-      userInfo = JSON.parse(properties.userInfo || '{}');
-    } catch (e) {
-      console.warn('Failed to parse warning marker data:', e);
+
+    if (isTwitter) {
+      try {
+        socialMetrics = JSON.parse(properties.socialMetrics || '{}');
+        userInfo = JSON.parse(properties.userInfo || '{}');
+      } catch (e) {
+        console.warn('Failed to parse warning marker data:', e);
+      }
     }
-    
-    // Calculate user age in days
+
+    // Twitter: bot detection
     const userCreated = new Date(userInfo.created_at || '2020-01-01');
     const userAgeDays = Math.floor((Date.now() - userCreated.getTime()) / (1000 * 60 * 60 * 24));
-    
-    // Bot detection indicators
     const followersCount = userInfo.followers_count || 0;
     const friendsCount = userInfo.friends_count || 0;
     const followerRatio = friendsCount > 0 ? (followersCount / friendsCount) : 0;
     const isLikelyBot = userAgeDays < 30 || followerRatio < 0.1 || friendsCount > followersCount * 5;
     const accountYear = new Date(new Date().getTime() - userAgeDays * 24 * 60 * 60 * 1000).getFullYear();
-    
-    // Truncate description if too long
-    const truncatedDescription = properties.description && properties.description.length > 120 
-      ? properties.description.substring(0, 120) + '...' 
+
+    // Source label and link text
+    const sourceLabel = isTikTok ? '🎵 TikTok' : isTwitter ? '🐦 Twitter' : source;
+    const viewLinkLabel = isTikTok ? 'View TikTok →' : 'View Tweet →';
+
+    // Truncate description
+    const truncatedDescription = properties.description && properties.description.length > 120
+      ? properties.description.substring(0, 120) + '...'
       : properties.description || 'No description available';
-    
+
     return `
       <div class="custom-popup-content">
-        <!-- Header with verification badge -->
+        <!-- Header -->
         <div class="popup-header">
           <h3 class="popup-title">
             ${properties.emoji} ${properties.title}
           </h3>
-          ${userInfo.verified ? '<span class="verified-badge">✓ VERIFIED</span>' : ''}
+          ${isTwitter && userInfo.verified ? '<span class="verified-badge">✓ VERIFIED</span>' : ''}
         </div>
 
         <p class="popup-description">
           ${truncatedDescription}
         </p>
 
-        <!-- Compact Warning Alert -->
+        <!-- Location Alert -->
         <div class="popup-warning-alert">
           <div class="popup-warning-text">
             ⚠️ ${properties.extractedLocation || 'Unknown Location'} • ${Math.round((properties.confidenceScore || 0) * 100)}% confidence
           </div>
         </div>
 
-        <!-- Compact Social Metrics -->
+        <!-- Twitter-only: Social Metrics -->
+        ${isTwitter ? `
         <div class="popup-metrics">
           ${socialMetrics.views && socialMetrics.views !== '0' ? `
-            <span class="metric-badge">
-              👀 Views: ${socialMetrics.views}
-            </span>
+            <span class="metric-badge">👀 Views: ${socialMetrics.views}</span>
           ` : ''}
           ${socialMetrics.retweets && socialMetrics.retweets > 10 ? `
-            <span class="metric-badge">
-              🔄 Retweets: ${socialMetrics.retweets}
-            </span>
+            <span class="metric-badge">🔄 Retweets: ${socialMetrics.retweets}</span>
           ` : ''}
         </div>
-
-        <!-- Compact User Info -->
         <div class="popup-user-info">
           <div class="popup-user-text">
             ${isLikelyBot ? '🤖 Potential Bot' : '👤 User'} • Since ${accountYear} • ${followersCount.toLocaleString()} followers
           </div>
         </div>
+        ` : ''}
 
-        <!-- Compact Metadata -->
+        <!-- Metadata -->
         <div class="popup-metadata">
           <div class="popup-meta-text">
-            Twitter • ${new Date(properties.createdAt).toLocaleDateString()} •
+            ${sourceLabel} • ${new Date(properties.createdAt).toLocaleDateString()} •
             ${properties.verified ? '<span class="verified-text">Verified</span>' : '<span class="unverified-text">Unverified Account</span>'}
           </div>
-          ${properties.url ? `<a href="${properties.url}" target="_blank" class="popup-link">View Tweet →</a>` : ''}
+          ${properties.url ? `<a href="${properties.url}" target="_blank" class="popup-link">${viewLinkLabel}</a>` : ''}
         </div>
       </div>
     `;

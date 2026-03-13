@@ -698,8 +698,8 @@ export async function extractLocationFromTweet(tweetText: string, userInfo?: any
       baseURL: "https://openrouter.ai/api/v1",
       apiKey: process.env.OPENROUTER_API_KEY,
       defaultHeaders: {
-        "HTTP-Referer": "https://safe-indo.vercel.app",
-        "X-Title": "Safe Indo",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "https://safe-indo.vercel.app",
+        "X-Title": process.env.NEXT_PUBLIC_APP_TITLE || "Safe Melbourne",
       },
     });
 

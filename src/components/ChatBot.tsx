@@ -68,7 +68,7 @@ export default function ChatBot() {
         body: JSON.stringify({
           message: userMessage.text,
           context: {
-            currentView: 'jakarta',
+            currentView: 'melbourne',
             timeRange: 'last_48h'
           }
         }),
@@ -90,7 +90,7 @@ export default function ChatBot() {
       } else {
         const errorResponse: Message = {
           id: `error-${Date.now()}`,
-          text: 'Maaf, terjadi kesalahan. Silakan coba lagi.',
+          text: 'Sorry, something went wrong. Please try again.',
           sender: 'bot',
           timestamp: new Date()
         };
@@ -104,7 +104,7 @@ export default function ChatBot() {
 
       const errorResponse: Message = {
         id: `error-${Date.now()}`,
-        text: 'Maaf, tidak dapat terhubung ke server. Periksa koneksi internet Anda.',
+          text: 'Could not connect to the server. Please check your internet connection.',
         sender: 'bot',
         timestamp: new Date()
       };

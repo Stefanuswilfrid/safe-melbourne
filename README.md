@@ -1,39 +1,64 @@
-# Safe - OSINT Monitoring for Safety during Civil Unrests
+# Safe Melbourne - OSINT Safety Monitoring Platform
 
-A comprehensive safety monitoring platform for Indonesia that tracks protests, hoaxes, road closures, and safety incidents in real-time.
+A real-time safety monitoring platform for Melbourne that tracks incidents, protests, road closures, and safety alerts by scraping TikTok and Twitter/X using AI-powered location extraction.
 
-## 🎯 What It Does
+## What It Does
 
-- **🗺️ Interactive Map**: Real-time map showing civil unrests across Indonesia
-- **🤖 AI Chat Assistant**: Ask questions about current safety situations
-- **📰 News Monitoring**: Automatically processes news articles and social media
-- **🚧 Road Closures**: Track and report road closure incidents
-- **🔍 Hoax Detection**: Monitor and search fact-checked hoax information
-- **📱 Mobile-First**: Optimized for mobile devices
+- **Interactive Map**: Real-time map showing incidents and safety alerts across Melbourne
+- **AI Chat Assistant**: Ask natural language questions about current safety situations
+- **TikTok Scraping**: Automatically scrapes Melbourne incident videos and extracts locations using AI
+- **Twitter/X Scraping**: Monitors Melbourne-related tweets for safety alerts and incidents
+- **Road Closures**: Tracks and displays road closure incidents
+- **RSS News Monitoring**: Processes news articles for relevant safety events
+- **Bot Detection**: Flags potentially bot-generated Twitter content
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- **Frontend**: Next.js 15, React 19, TypeScript, TailwindCSS
-- **Backend**: Next.js API Routes
+- **Frontend**: Next.js 15, React 19, TypeScript
 - **Database**: Neon PostgreSQL with Prisma ORM
 - **Cache**: Upstash Redis
-- **AI**: OpenRouter (GPT models)
+- **AI**: OpenRouter + OpenAI GPT-4o (location extraction, chat)
 - **Maps**: Mapbox GL JS
-- **Real-time**: Server-Sent Events
+- **Scraping**: RapidAPI (TikTok + Twitter/X)
+- **Geocoding**: Google Maps API with smart caching
+- **Deployment**: Vercel (with cron jobs)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Clone and Install
 ```bash
 git clone <repository-url>
-cd jktsafe
+cd safe-melbourne
 npm install
 ```
 
 ### 2. Environment Setup
-Check `env-template.txt`
 
+Copy `.env.example` and fill in the values:
+```bash
+cp .env.example .env
+```
 
+Required environment variables:
+```env
+DATABASE_URL=                     # Neon PostgreSQL connection string
+NEXT_PUBLIC_MAPBOX_TOKEN=         # Mapbox public token
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=  # Google Maps API key
+OPENAI_API_KEY=                   # OpenAI API key (for chat)
+OPENROUTER_API_KEY=               # OpenRouter API key (for scraping AI)
+RAPIDAPI_KEY=                     # RapidAPI key (TikTok + Twitter scraping)
+UPSTASH_REDIS_REST_URL=           # Upstash Redis URL
+UPSTASH_REDIS_REST_TOKEN=         # Upstash Redis token
+SCRAPE_SECRET=                    # Random secret for scrape endpoint auth
+CRON_SECRET=                      # Random secret for Vercel cron auth
+NEXT_PUBLIC_APP_URL=              # Your deployment URL
+NEXT_PUBLIC_APP_TITLE=            # App title (e.g. "Safe Melbourne")
+```
+
+Generate `SCRAPE_SECRET` and `CRON_SECRET` with:
+```bash
+openssl rand -hex 32
+```
 
 ### 3. Database Setup
 ```bash
@@ -48,82 +73,89 @@ npm run dev
 
 Visit [http://localhost:3000](http://localhost:3000)
 
-## 📊 Key Features
+## Scraping
 
-### Real-time Monitoring
-- **Events**: Protest incidents, demonstrations, civil unrest
-- **Hoaxes**: Fact-checked misinformation tracking
-- **Road Closures**: Traffic and infrastructure incidents
-- **Warning Markers**: Social media-based safety alerts
+### TikTok
+Searches for Melbourne incident videos via RapidAPI. For each video, AI extracts the location from the title and thumbnail, geocodes it, and stores it as an event.
 
-### AI-Powered Processing
-- **Location Extraction**: AI identifies locations from text and images
-- **Content Analysis**: Processes Indonesian news and social media
-- **Smart Geocoding**: Converts location names to coordinates with caching
-- **Duplicate Prevention**: Geocoding cache prevents same location processing twice
-- **Vector Search**: Semantic search for hoax content
+Default keywords (override with `SCRAPE_KEYWORDS` env var, pipe-separated):
+```
+melbourne | melbourne incident | melbourne crash | melbourne car accident | melbourne stabbing | melbourne shooting | melbourne fight
+```
 
+### Twitter/X
+Searches for Melbourne-related tweets via RapidAPI. Stores tweets with social metrics and bot detection signals.
 
-### User Interface
-- **Interactive Map**: Real-time incident visualization
-- **Chat Assistant**: Natural language queries about safety
-- **Mobile Responsive**: Optimized for mobile devices
-- **Admin Tools**: Content management
+Default keywords (override with `TWITTER_SEARCH_KEYWORDS` env var, pipe-separated):
+```
+melbourne protest | melbourne incident | melbourne stabbing | melbourne shooting | melbourne crash | melbourne fight | melbourne attack | melbourne emergency
+```
 
-## 🔧 API Endpoints
+### Triggering Scrapes Manually
 
-- `GET /api/events` - Fetch safety incidents
-- `POST /api/events` - Report new incident
-- `GET /api/chat` - AI chat interface
-- `GET /api/hoax/search` - Search hoax database
-- `GET /api/road-closures` - Road closure data
-- `GET /api/events/stream` - Real-time updates
+```bash
+# TikTok
+curl -X GET "http://localhost:3000/api/scrape/tiktok" \
+  -H "x-internal-cron: true" \
+  -H "x-scrape-secret: YOUR_SCRAPE_SECRET"
 
-## 🚀 Deployment
+# Twitter
+curl -X GET "http://localhost:3000/api/twitter/search" \
+  -H "x-internal-cron: true" \
+  -H "x-scrape-secret: YOUR_SCRAPE_SECRET"
 
-### Vercel (Recommended)
-1. Connect repository to Vercel
-2. Set environment variables in Vercel dashboard
-3. Deploy with default Next.js settings
+# Both (via cron endpoint)
+curl -X GET "http://localhost:3000/api/scrape/cron" \
+  -H "x-internal-cron: true" \
+  -H "x-scrape-secret: YOUR_SCRAPE_SECRET"
+```
 
-## 📱 Mobile Optimization
+## Cron Jobs
 
-- **iOS Safari Fix**: Input fields use 16px font to prevent zoom
-- **Touch-Friendly**: Large tap targets and gestures
-- **Responsive Design**: Adapts to all screen sizes
-- **Offline Support**: Cached data for basic functionality
+Configured in `vercel.json` — runs daily at 09:00 UTC:
 
-## 🔒 Security & Privacy
+```json
+{
+  "crons": [
+    { "path": "/api/scrape/cron", "schedule": "0 9 * * *" }
+  ]
+}
+```
 
-- **Rate Limiting**: API endpoints protected
-- **Input Validation**: All user inputs sanitized
-- **Secure Storage**: API keys in environment variables
-- **CORS Configuration**: Proper cross-origin setup
+The cron endpoint runs TikTok and Twitter scraping in parallel.
 
-## 📈 Performance
+## API Endpoints
 
-- **Smart Caching**: 
-  - Redis for frequently accessed data
-  - Geocoding cache prevents duplicate API calls
-  - 30-day cache validity with usage tracking
-- **Database Indexing**: Optimized queries with proper indexes
-- **Image Optimization**: Next.js automatic optimization
-- **CDN**: Vercel Edge Network
-- **Rate Limiting**: API call throttling to prevent overuse
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/events` | GET | Fetch safety events |
+| `/api/events` | POST | Report a new event |
+| `/api/events/stream` | GET | Real-time SSE updates |
+| `/api/chat` | POST | AI chat about current safety |
+| `/api/scrape/tiktok` | GET | Run TikTok scrape (auth required) |
+| `/api/scrape/cron` | GET | Run all scrapers (auth required) |
+| `/api/twitter/search` | GET | Run Twitter scrape (auth required) |
+| `/api/twitter/data` | GET | View stored Twitter data (admin) |
+| `/api/road-closures` | GET | Road closure data |
+| `/api/hoax/search` | GET | Search hoax database |
 
-## 🤝 Contributing
+## Deployment
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+### Vercel
 
-## 📄 License
+1. Push to GitHub and connect to Vercel
+2. Set all environment variables in Vercel → Settings → Environment Variables
+3. Make sure `NEXT_PUBLIC_APP_URL` is set to your deployment URL (e.g. `https://safe-melbourne.vercel.app`)
+4. The build command is set in `vercel.json`: `prisma generate && next build`
+5. Cron jobs activate automatically on deploy
 
-MIT License - see LICENSE file for details.
+## Security
+
+- Scrape endpoints require `x-internal-cron: true` + `x-scrape-secret` headers
+- Vercel cron jobs authenticate via `CRON_SECRET` in the `Authorization: Bearer` header
+- Admin endpoints require admin authentication
+- Rate limiting applied to public-facing API endpoints
 
 ---
 
-**Safe Melbourne** - Keeping communities informed and safe through real-time monitoring and AI-powered insights.
-
+**Safe Melbourne** — Keeping communities informed through real-time OSINT monitoring and AI-powered insights.

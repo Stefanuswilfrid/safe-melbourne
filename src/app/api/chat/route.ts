@@ -78,9 +78,9 @@ export async function GET(request: NextRequest) {
     success: true,
     message: "Safe Melbourne Chat API - POST your questions here!",
     example: {
-      message: "ada demo dimana?",
+      message: "What incidents are happening in Melbourne?",
       context: {
-        currentView: "jakarta",
+        currentView: "melbourne",
         timeRange: "last_24h"
       }
     }
@@ -143,11 +143,8 @@ async function getSimilarEvents(queryEmbedding: number[]): Promise<EventData[]> 
     // Also get some recent events as fallback
     const recentEvents = await prisma.event.findMany({
       where: {
-        type: {
-          in: ['protest', 'demonstration']
-        },
         createdAt: {
-          gte: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours ago
+          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // last 7 days
         }
       },
       orderBy: {
@@ -177,7 +174,7 @@ async function getSimilarEvents(queryEmbedding: number[]): Promise<EventData[]> 
           { lat: { not: null } },
           { lng: { not: null } },
           { confidenceScore: { gte: 0.3 } },
-          { createdAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } } // 6 hours ago
+          { createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } // last 7 days
         ]
       },
       orderBy: { createdAt: 'desc' },
@@ -201,7 +198,7 @@ async function getSimilarEvents(queryEmbedding: number[]): Promise<EventData[]> 
     // Transform warning markers to match EventData format
     const transformedWarnings = warningMarkers.map((marker) => ({
       id: marker.id,
-      title: `⚠️ Demo Alert: ${marker.extractedLocation}`,
+      title: `⚠️ Alert: ${marker.extractedLocation}`,
       description: marker.text.length > 200 ? marker.text.substring(0, 200) + '...' : marker.text,
       lat: marker.lat!,
       lng: marker.lng!,
@@ -237,14 +234,11 @@ async function getSimilarEvents(queryEmbedding: number[]): Promise<EventData[]> 
 
 async function getRecentEventsFallback(): Promise<EventData[]> {
   try {
-    // Get events from last 6 hours as fallback
+    // Get recent events as fallback
     const events = await prisma.event.findMany({
       where: {
-        type: {
-          in: ['protest', 'demonstration']
-        },
         createdAt: {
-          gte: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours ago
+          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // last 7 days
         }
       },
       orderBy: {
@@ -274,7 +268,7 @@ async function getRecentEventsFallback(): Promise<EventData[]> {
           { lat: { not: null } },
           { lng: { not: null } },
           { confidenceScore: { gte: 0.3 } },
-          { createdAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } } // 6 hours ago
+          { createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } } // last 7 days
         ]
       },
       orderBy: { createdAt: 'desc' },
@@ -298,7 +292,7 @@ async function getRecentEventsFallback(): Promise<EventData[]> {
     // Transform warning markers to match EventData format
     const transformedWarnings = warningMarkers.map((marker) => ({
       id: marker.id,
-      title: `⚠️ Demo Alert: ${marker.extractedLocation}`,
+      title: `⚠️ Alert: ${marker.extractedLocation}`,
       description: marker.text.length > 200 ? marker.text.substring(0, 200) + '...' : marker.text,
       lat: marker.lat!,
       lng: marker.lng!,
@@ -337,7 +331,7 @@ async function generateChatResponse(message: string, events: EventData[], hoaxRe
         time: formatTimeAgo(event.createdAt),
         verified: event.verified,
         source: event.source,
-        url: event.url || 'Tidak tersedia'
+        url: event.url || 'Not available'
       };
 
       // Add specific information for warning markers
@@ -347,13 +341,13 @@ async function generateChatResponse(message: string, events: EventData[], hoaxRe
           confidenceScore: `${Math.round((event.confidenceScore || 0) * 100)}%`,
           views: event.views || 0,
           retweets: event.retweets || 0,
-          markdownLink: event.url ? `[Twitter](${event.url})` : 'Tidak ada link tersedia',
-          alertType: 'Peringatan Demonstrasi'
+          markdownLink: event.url ? `[Twitter](${event.url})` : null,
+          alertType: 'Safety Alert'
         };
       } else {
         return {
           ...baseInfo,
-          markdownLink: event.url ? `[TikTok](${event.url})` : 'Tidak ada link tersedia'
+          markdownLink: event.url ? `[TikTok](${event.url})` : null
         };
       }
     });
@@ -373,63 +367,38 @@ async function generateChatResponse(message: string, events: EventData[], hoaxRe
     })) : [];
 
     const systemPrompt = `You are a safety information assistant for Safe Melbourne.
-Help users with questions about protests, unrest/incidents, and current safety situations.
+Help users with questions about protests, incidents, road closures, and current safety situations in Melbourne, Australia.
 
-LATEST INFORMATION FROM THE DATABASE (${events.length} items from the last 6 hours):
+LATEST INFORMATION FROM THE DATABASE (${events.length} recent items):
 ${JSON.stringify(eventsContext, null, 2)}
 
-${hoaxResults && hoaxResults.length > 0 ? `
-HOAX / FACT-CHECK INFORMATION FROM TURNBACKHOAX.ID (${hoaxResults.length} search results):
-${JSON.stringify(hoaxContext, null, 2)}
-
-HOAX CATEGORIES:
-- SALAH: false/fabricated/misleading content
-- PENIPUAN: scam/impostor content
-` : ''}
-
 AVAILABLE DATA TYPES:
-1. WARNING MARKERS (type: "warning"): protest warnings from Twitter with a confidence score
-2. EVENTS (type: "protest", "demonstration"): events from TikTok and other sources
-${hoaxResults && hoaxResults.length > 0 ? '3. HOAX FACT-CHECKS: verifications from TurnBackHoax.ID' : ''}
+1. WARNING (type: "warning"): safety incidents sourced from Twitter/X or TikTok (stabbings, crashes, fights, protests, etc.)
+2. ROAD CLOSURE (type: "road_closure"): road or traffic incidents
 
-PROTEST-QUESTION GUIDANCE:
-- When asked “where are protests planned?” or similar, prioritize WARNING MARKERS
-- Warning markers are usually the most accurate signal for planned demonstrations
-- Include the confidence score for warning markers
-- Mention views and retweets to show public attention/engagement
-- Provide specific location information
-
-HOAX-QUESTION GUIDANCE:
-- When asked about hoaxes/misinformation or verification, use TurnBackHoax.ID data
-- Include the hoax category (SALAH / PENIPUAN) and the verification method
-- Explain investigation results clearly and simply
-- ALWAYS include the link to the original TurnBackHoax.ID source
-- If you don’t find a relevant hoax, say so honestly
-- Emphasize the information comes from a trusted source (TurnBackHoax.ID)
-- For hoaxes, include when it was published
+INCIDENT GUIDANCE:
+- When asked about incidents or what is happening, summarise all recent events by location
+- For Twitter warning markers, include confidence score and engagement (views/retweets)
+- Always mention the source (TikTok, Twitter, Discord) and how long ago it was reported
+- Provide specific Melbourne suburb or street names when available
 
 GENERAL GUIDANCE:
-- Respond in natural, easy-to-understand English
-- Focus on location, time, and incident/event type
+- Always respond in clear, natural English
+- Focus on location, time, and incident type
 - Include verification status when relevant
-- Provide a safety-useful summary
-- If there’s no recent data, say so honestly
-- Do not provide inaccurate or speculative information
-- If the question is not related to safety, steer back to the main topic
-- ALWAYS include links (Twitter/TikTok/TurnBackHoax) when available for each item
+- If there is no recent data, say so honestly
+- Do not speculate or fabricate information
+- If the question is unrelated to Melbourne safety, politely redirect
 
 RESPONSE FORMAT:
-- Use relevant emoji (📍 location, ⏰ time, ✅ verified, ⚠️ warning, 🔗 link)
-- Group information by location when possible
-- Provide clear time context (“2 hours ago”, “yesterday”, etc.)
-- For warning markers: include confidence score and engagement metrics
-- LINK FORMAT: use the existing markdownLink field provided in the data
-- Example: 🔗 [Twitter](https://twitter.com/i/status/123) or [TikTok](https://tiktok.com/@user/video/123) or [TurnBackHoax.ID](https://turnbackhoax.id/...)
-- The markdownLink field is already properly formatted for hyperlinks
-- If no link exists, it will show "Tidak ada link tersedia"`;
+- Use relevant emoji for location, time, verified, warning, and links
+- Group by location when listing multiple incidents
+- Use clear time context such as "2 hours ago" or "yesterday"
+- Include links using the markdownLink field already provided in the data
+- If no link is available, omit the link line entirely`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -440,11 +409,11 @@ RESPONSE FORMAT:
           content: message
         }
       ],
-      max_completion_tokens: 1000,
+      max_tokens: 1000,
     });
     console.log('LLM response:', response.choices[0]?.message);
 
-    const llmResponse = response.choices[0]?.message?.content || "Maaf, saya tidak dapat memproses pertanyaan Anda saat ini.";
+    const llmResponse = response.choices[0]?.message?.content || "Sorry, I was unable to process your question.";
 
     return {
       text: llmResponse,
@@ -455,7 +424,7 @@ RESPONSE FORMAT:
   } catch (error) {
     console.error('LLM generation error:', error);
     return {
-      text: "Maaf, terjadi kesalahan dalam memproses pertanyaan Anda. Silakan coba lagi.",
+      text: "Sorry, an error occurred. Please try again.",
       eventsCount: events.length,
       timestamp: new Date().toISOString(),
       error: true

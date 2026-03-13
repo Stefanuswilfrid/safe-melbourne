@@ -40,7 +40,7 @@ async function clearRSSCache() {
     // Trigger immediate fetch
     console.log('\n🚀 Triggering immediate RSS fetch...');
     const baseUrl = process.env.NODE_ENV === 'production'
-      ? 'https://safe-indo.vercel.app'
+      ? 'https://safe-melbourne.vercel.app'
       : 'http://localhost:3000';
     const response = await fetch(`${baseUrl}/api/rss/cron`);
     const result = await response.json();

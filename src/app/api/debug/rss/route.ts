@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
         await redis.del('turnbackhoax:last_successful_fetch');
         //to be replaced with the actual base url
         const baseUrl = process.env.NODE_ENV === 'production'
-          ? process.env.NEXT_PUBLIC_APP_URL || 'https://safe-indo.vercel.app'
+          ? process.env.NEXT_PUBLIC_APP_URL || 'https://safe-melbourne.vercel.app'
           : 'http://localhost:3000';
           
         const response = await fetch(`${baseUrl}/api/rss/cron`);

@@ -51,7 +51,7 @@ export default function ChatBot() {
     // Add loading message
     const loadingMessage: Message = {
       id: `loading-${Date.now()}`,
-      text: 'Sedang memproses...',
+      text: 'Processing...',
       sender: 'bot',
       timestamp: new Date(),
       isLoading: true

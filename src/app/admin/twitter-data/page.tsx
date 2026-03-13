@@ -79,7 +79,7 @@ export default function TwitterDataPage() {
           🐦 Twitter Data Dashboard
         </h1>
         <p style={{ color: '#666', marginBottom: '20px' }}>
-          View and analyze Twitter data from &quot;rencana demo&quot; searches
+          View and analyze Twitter data from &quot;Melbourne protest&quot; searches
         </p>
 
         {/* Filter Buttons */}

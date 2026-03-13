@@ -1,136 +1,91 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * Cron Job Endpoint for TikTok Scraping
+ * Cron Job Endpoint — TikTok + Twitter Scraping
  *
- * This endpoint is called by Vercel cron jobs and internally calls
- * the main scraping endpoint with proper authentication.
- *
- * Cron schedule:
- * - Peak hours (12pm-2am): Every hour
- * - Conserve hours (2am-12pm): Every 2 hours
+ * Called by Vercel cron (vercel.json) once daily at 09:00 UTC.
+ * Runs TikTok and Twitter scraping in parallel.
  */
 
-export async function GET(request: NextRequest) {
-  console.log('⏰ Cron job triggered - Starting TikTok scraping...');
-
+async function parseJsonResponse(response: Response): Promise<any> {
+  const contentType = response.headers.get('content-type');
   try {
-    // Get the SCRAPE_SECRET from environment
-    const scrapeSecret = process.env.SCRAPE_SECRET;
-
-    if (!scrapeSecret) {
-      console.error('❌ SCRAPE_SECRET not configured in environment');
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'SCRAPE_SECRET not configured',
-          timestamp: new Date().toISOString()
-        },
-        { status: 500 }
-      );
+    if (contentType && contentType.includes('application/json')) {
+      return await response.json();
     }
-
-    // Get the base URL for internal API calls - hardcode for cron jobs since Vercel serverless 
-    // runs on internal infrastructure with different domain routing
-    const baseUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://safe-indo.vercel.app'  // Your actual custom domain
-      : 'http://localhost:3000';
-
-    // Limit work per run to fit within function limits
-    const limit = process.env.SCRAPE_CRON_LIMIT || '10';
-
-    console.log('🔗 Calling main scraping endpoint...');
-    console.log(`📍 Target URL: ${baseUrl}/api/scrape/tiktok?limit=${limit}`);
-    console.log('📋 Request headers being sent:');
-    console.log(`  - x-internal-cron: true`);
-    console.log(`  - x-scrape-secret: ${scrapeSecret ? 'Configured' : 'Missing'}`);
-    console.log(`  - user-agent: vercel-cron/1.0`);
-    console.log(`  - limit: ${limit}`);
-
-    // Call the main scraping endpoint with proper authentication
-    let response: Response;
-    
+    const text = await response.text();
     try {
-      response = await fetch(`${baseUrl}/api/scrape/tiktok?limit=${encodeURIComponent(limit)}`, {
-        method: 'GET',
-        headers: {
-          'x-internal-cron': 'true', // Mark this as an internal cron call
-          'x-scrape-secret': scrapeSecret, // Provide authentication
-          'user-agent': 'vercel-cron/1.0', // Identify as cron job
-        },
-        // Increase timeout for scraping operations and avoid caching
-        cache: 'no-store',
-        signal: AbortSignal.timeout(25 * 60 * 1000) // 25 minutes timeout
-      });
-    } catch (fetchError) {
-      console.error('❌ Fetch request failed:', fetchError);
-      throw new Error(`Failed to call scraping endpoint: ${fetchError instanceof Error ? fetchError.message : 'Unknown fetch error'}`);
+      return JSON.parse(text);
+    } catch {
+      return { success: false, error: `Non-JSON response (${response.status}): ${text.substring(0, 100)}` };
     }
-
-    // Check if response is JSON before parsing
-    const contentType = response.headers.get('content-type');
-    let data: any;
-    
-    try {
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        // If not JSON, get text and try to extract error info
-        const textResponse = await response.text();
-        console.error('❌ Non-JSON response received:', textResponse.substring(0, 200));
-        
-        // Try to parse as JSON anyway (in case content-type is wrong)
-        try {
-          data = JSON.parse(textResponse);
-        } catch {
-          // If parsing fails, create a structured error response
-          data = {
-            success: false,
-            error: `Invalid response format: ${response.status} ${response.statusText}`,
-            rawResponse: textResponse.substring(0, 100)
-          };
-        }
-      }
-    } catch (parseError) {
-      console.error('❌ Failed to parse response:', parseError);
-      data = {
-        success: false,
-        error: 'Failed to parse response',
-        status: response.status,
-        statusText: response.statusText
-      };
-    }
-
-    if (response.ok && data.success) {
-      console.log('✅ Cron job completed successfully');
-      console.log(`📊 Results: ${data.message || 'Scraping completed'}`);
-
-      return NextResponse.json({
-        success: true,
-        message: 'Cron job executed successfully',
-        scrapingResult: data,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      console.error('❌ Cron job failed:', data.error || 'Unknown error');
-
-      return NextResponse.json({
-        success: false,
-        error: data.error || 'Scraping failed',
-        scrapingResult: data,
-        timestamp: new Date().toISOString()
-      }, { status: response.status || 500 });
-    }
-
-  } catch (error) {
-    console.error('❌ Cron job error:', error);
-
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown cron error',
-      timestamp: new Date().toISOString()
-    }, { status: 500 });
+  } catch {
+    return { success: false, error: 'Failed to parse response', status: response.status };
   }
+}
+
+export async function GET(request: NextRequest) {
+  console.log('⏰ Cron job triggered - Starting TikTok + Twitter scraping...');
+
+  const scrapeSecret = process.env.SCRAPE_SECRET;
+
+  if (!scrapeSecret) {
+    console.error('❌ SCRAPE_SECRET not configured in environment');
+    return NextResponse.json(
+      { success: false, error: 'SCRAPE_SECRET not configured', timestamp: new Date().toISOString() },
+      { status: 500 }
+    );
+  }
+
+  const baseUrl = process.env.NODE_ENV === 'production'
+    ? 'https://safe-indo.vercel.app'
+    : 'http://localhost:3000';
+
+  const limit = process.env.SCRAPE_CRON_LIMIT || '10';
+  const internalHeaders = {
+    'x-internal-cron': 'true',
+    'x-scrape-secret': scrapeSecret,
+    'user-agent': 'vercel-cron/1.0',
+  };
+
+  console.log(`📍 Base URL: ${baseUrl}`);
+
+  // Run TikTok and Twitter scraping in parallel
+  const [tiktokResult, twitterResult] = await Promise.allSettled([
+    // --- TikTok ---
+    fetch(`${baseUrl}/api/scrape/tiktok?limit=${encodeURIComponent(limit)}`, {
+      method: 'GET',
+      headers: internalHeaders,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(25 * 60 * 1000),
+    }).then(r => parseJsonResponse(r).then(data => ({ response: r, data }))),
+
+    // --- Twitter ---
+    fetch(`${baseUrl}/api/twitter/search`, {
+      method: 'GET',
+      headers: internalHeaders,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5 * 60 * 1000),
+    }).then(r => parseJsonResponse(r).then(data => ({ response: r, data }))),
+  ]);
+
+  const tiktok = tiktokResult.status === 'fulfilled'
+    ? tiktokResult.value
+    : { response: null, data: { success: false, error: (tiktokResult.reason as Error)?.message } };
+
+  const twitter = twitterResult.status === 'fulfilled'
+    ? twitterResult.value
+    : { response: null, data: { success: false, error: (twitterResult.reason as Error)?.message } };
+
+  console.log(`🎬 TikTok: ${tiktok.data.success ? '✅' : '❌'} ${tiktok.data.message || tiktok.data.error || ''}`);
+  console.log(`🐦 Twitter: ${twitter.data.success ? '✅' : '❌'} processed=${twitter.data.processed ?? 'N/A'}`);
+
+  return NextResponse.json({
+    success: tiktok.data.success || twitter.data.success,
+    timestamp: new Date().toISOString(),
+    tiktok: tiktok.data,
+    twitter: twitter.data,
+  });
 }
 
 // Handle other HTTP methods

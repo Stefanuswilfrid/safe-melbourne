@@ -38,6 +38,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Allow internal cron calls; block unauthenticated external requests
+    const isInternalCron = request.headers.get('x-internal-cron') === 'true';
+    const scrapeSecret = request.headers.get('x-scrape-secret');
+    const isAuthenticated = isInternalCron && scrapeSecret === process.env.SCRAPE_SECRET;
+
+    if (!isInternalCron && !isAuthenticated) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
     // Check if RapidAPI key is configured
     if (!process.env.RAPIDAPI_KEY) {
       console.error('❌ RapidAPI key not configured');
@@ -47,52 +59,80 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log('🐦 Starting Twitter search for "rencana demo"...');
+    // Configurable keyword list — override via TWITTER_SEARCH_KEYWORDS env var (pipe-separated)
+    const rawKeywords = process.env.TWITTER_SEARCH_KEYWORDS;
+    const searchKeywords = rawKeywords
+      ? rawKeywords.split('|').map(k => k.trim()).filter(Boolean)
+      : [
+          'melbourne protest',
+          'melbourne incident',
+          'melbourne stabbing',
+          'melbourne shooting',
+          'melbourne crash',
+          'melbourne fight',
+          'melbourne attack',
+          'melbourne emergency',
+        ];
 
-    // Search for "rencana demo" tweets
-    const url = 'https://twitter-api45.p.rapidapi.com/search.php?query=%22rencana%22%20demo&search_type=Latest';
-    const options = {
-      method: 'GET',
-              headers: {
-          'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-          'x-rapidapi-host': 'twitter-api45.p.rapidapi.com'
-        }
+    console.log(`🐦 Starting Twitter search across ${searchKeywords.length} keywords:`, searchKeywords);
+
+    const headers = {
+      'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+      'x-rapidapi-host': 'twitter-api45.p.rapidapi.com'
     };
 
-    const response = await fetch(url, options);
-    
-    if (!response.ok) {
-      throw new Error(`Twitter API responded with status: ${response.status}`);
+    // Collect all tweets across all keywords, deduplicate by tweet_id
+    const seenTweetIds = new Set<string>();
+    const allTweets: TwitterTimeline[] = [];
+
+    for (const keyword of searchKeywords) {
+      try {
+        const encodedQuery = encodeURIComponent(keyword);
+        const url = `https://twitter-api45.p.rapidapi.com/search.php?query=${encodedQuery}&search_type=Latest`;
+
+        console.log(`🔎 Searching Twitter for: "${keyword}"`);
+        const response = await fetch(url, { method: 'GET', headers });
+
+        if (!response.ok) {
+          console.warn(`⚠️ Twitter API returned ${response.status} for keyword: "${keyword}"`);
+          continue;
+        }
+
+        let twitterData: TwitterSearchResponse;
+        try {
+          twitterData = JSON.parse(await response.text());
+        } catch {
+          console.warn(`⚠️ Failed to parse response for keyword: "${keyword}"`);
+          continue;
+        }
+
+        if (!twitterData.timeline || !Array.isArray(twitterData.timeline)) {
+          console.warn(`⚠️ No timeline in response for keyword: "${keyword}"`);
+          continue;
+        }
+
+        let newForKeyword = 0;
+        for (const tweet of twitterData.timeline) {
+          if (!seenTweetIds.has(tweet.tweet_id)) {
+            seenTweetIds.add(tweet.tweet_id);
+            allTweets.push(tweet);
+            newForKeyword++;
+          }
+        }
+
+        console.log(`✅ "${keyword}": ${twitterData.timeline.length} tweets (${newForKeyword} new after dedup)`);
+      } catch (keywordError) {
+        console.error(`❌ Error searching keyword "${keyword}":`, keywordError);
+      }
     }
 
-    const result = await response.text();
-    let twitterData: TwitterSearchResponse;
-
-    try {
-      twitterData = JSON.parse(result);
-    } catch (parseError) {
-      console.error('❌ Failed to parse Twitter API response:', parseError);
-      return NextResponse.json(
-        { success: false, error: 'Invalid response from Twitter API' },
-        { status: 500 }
-      );
-    }
-
-    if (!twitterData.timeline || !Array.isArray(twitterData.timeline)) {
-      console.error('❌ Invalid Twitter API response structure');
-      return NextResponse.json(
-        { success: false, error: 'Invalid Twitter API response structure' },
-        { status: 500 }
-      );
-    }
-
-    console.log(`📊 Found ${twitterData.timeline.length} tweets from Twitter API`);
+    console.log(`📊 Total unique tweets collected: ${allTweets.length}`);
 
     // Process and store tweets in database
     let processedCount = 0;
     const errors: string[] = [];
 
-    for (const tweet of twitterData.timeline) {
+    for (const tweet of allTweets) {
       try {
         // Skip if tweet already exists
         const existing = await prisma.warningMarker.findUnique({
@@ -161,8 +201,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: twitterData,
+      totalFound: allTweets.length,
       processed: processedCount,
+      keywords: searchKeywords,
       errors: errors.length > 0 ? errors : undefined
     });
 

@@ -131,7 +131,7 @@ export const MapOverlay: React.FC<MapOverlayProps> = ({
                     fontWeight: '500',
                     color: '#ffffff'
                   }}>
-                    {getStatusText(scrapingStatus)} - Updates every 5 hour
+                    {getStatusText(scrapingStatus)} - Updates every 24 hour
                   </span>
                 </div>
                 <div style={{

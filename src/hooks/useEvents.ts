@@ -52,7 +52,7 @@ export const useEvents = () => {
         const allEvents = [
           ...eventsData.events,
           ...roadClosuresData.roadClosures.map(rc => ({ ...rc, type: 'road_closure' as const })),
-          ...(warningMarkersData.success ? warningMarkersData.warnings.map(wm => ({ ...wm, type: 'warning' as const })) : [])
+          ...(warningMarkersData.success ? warningMarkersData.warnings : [])
         ];
 
         setEvents(allEvents);

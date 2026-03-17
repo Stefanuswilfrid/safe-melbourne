@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractDetailedLocationFromTikTok } from '@/lib/openrouter';
-import { smartGeocodeLocation } from '@/lib/smart-geocoding';
+import { classifyIncidentType } from '@/lib/incident-classification';
 import { prisma } from '@/lib/prisma';
 
 import { Root, Video } from '@/types/tiktok';
@@ -9,14 +9,11 @@ import { Root, Video } from '@/types/tiktok';
 import { scrapingProgress, updateScrapingProgress, resetScrapingProgress } from '@/lib/scraping-progress';
 import { scrapeRateLimiter, checkRateLimit } from '@/lib/rate-limiter';
 
-// Import authentication middleware
-
 // Import Pub/Sub for live updates
 import { publishNewEvent, publishSystemMessage } from '@/lib/pubsub';
 
 // Import RapidAPI key manager
 import { rapidAPIManager, type ScrapeResult } from '@/lib/rapidapi-key-manager';
-import { UnifiedGeocodeResult } from '@/lib/geocoding-cache';
 import { authenticateScrapeRequest, getCorsHeaders, handleCors } from '@/lib/auth-middleware';
 
 async function scrapeTikTokVideos(dateToday: string): Promise<Video[]> {
@@ -241,6 +238,8 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
     // Convert TikTok create_time (Unix timestamp) to Date
     const originalCreatedAt = new Date(video.create_time * 1000);
     
+    const inferredType = classifyIncidentType(video.title);
+
     // Create or update event in database using upsert to prevent duplicates
     try {
       const result = await prisma.event.upsert({
@@ -253,6 +252,7 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
           lat: bestGeocodeResult.lat!,
           lng: bestGeocodeResult.lng!,
           verified: false,
+          type: inferredType,
           extractedLocation: bestLocation,
           googleMapsUrl: googleMapsUrl,
           originalCreatedAt: originalCreatedAt,
@@ -266,7 +266,7 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
           source: 'TikTok',
           url: tiktokUrl,
           verified: false,
-          type: 'warning',
+          type: inferredType,
           extractedLocation: bestLocation,
           googleMapsUrl: googleMapsUrl,
           originalCreatedAt: originalCreatedAt

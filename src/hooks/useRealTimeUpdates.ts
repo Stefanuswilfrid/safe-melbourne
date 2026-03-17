@@ -69,13 +69,16 @@ export const useRealTimeUpdates = (setEvents: React.Dispatch<React.SetStateActio
                     // Add new warning markers
                     if (data.warningMarkers) {
                       data.warningMarkers.forEach((newWarning: Event) => {
-                        const existingIndex = newEvents.findIndex(e => e.id === newWarning.id && e.type === 'warning');
+                        const normalizedType = newWarning.type || 'warning';
+                        const existingIndex = newEvents.findIndex(
+                          e => e.id === newWarning.id && e.source?.toLowerCase() === 'twitter'
+                        );
                         if (existingIndex >= 0) {
                           // Update existing warning
-                          newEvents[existingIndex] = { ...newWarning, type: 'warning' };
+                          newEvents[existingIndex] = { ...newWarning, type: normalizedType };
                         } else {
                           // Add new warning
-                          newEvents.unshift({ ...newWarning, type: 'warning' });
+                          newEvents.unshift({ ...newWarning, type: normalizedType });
                         }
                       });
                     }

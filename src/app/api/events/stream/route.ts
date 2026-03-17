@@ -1,9 +1,57 @@
 import { NextRequest } from 'next/server';
+import { classifyIncidentType } from '@/lib/incident-classification';
 import { prisma } from '../../../../lib/prisma';
 import '../../../../lib/pubsub';
 
 // Use Node.js runtime since Prisma doesn't work in Edge runtime
 export const runtime = 'nodejs';
+
+function transformWarningMarker(marker: {
+  id: number;
+  tweetId: string;
+  text: string;
+  createdAt: Date;
+  userInfo: unknown;
+  extractedLocation: string | null;
+  lat: number | null;
+  lng: number | null;
+  confidenceScore: number | null;
+  verified: boolean;
+  bookmarks?: number;
+  favorites?: number;
+  retweets?: number;
+  views?: string;
+  quotes?: number;
+  replies?: number;
+}) {
+  const type = classifyIncidentType(marker.text);
+  const label = type === 'protest' ? 'Protest' : type === 'road_closure' ? 'Road Closure' : 'Warning';
+
+  return {
+    id: marker.id,
+    title: `${label}: ${marker.extractedLocation ?? 'Unknown location'}`,
+    description: marker.text.length > 200 ? `${marker.text.substring(0, 200)}...` : marker.text,
+    lat: marker.lat,
+    lng: marker.lng,
+    source: 'twitter',
+    url: `https://twitter.com/${(marker.userInfo as Record<string, unknown>)?.screen_name}/status/${marker.tweetId}`,
+    verified: marker.verified,
+    type,
+    createdAt: marker.createdAt.toISOString(),
+    tweetId: marker.tweetId,
+    extractedLocation: marker.extractedLocation,
+    confidenceScore: marker.confidenceScore,
+    socialMetrics: JSON.stringify({
+      bookmarks: marker.bookmarks ?? 0,
+      favorites: marker.favorites ?? 0,
+      retweets: marker.retweets ?? 0,
+      views: marker.views ?? '0',
+      quotes: marker.quotes ?? 0,
+      replies: marker.replies ?? 0,
+    }),
+    userInfo: JSON.stringify(marker.userInfo),
+  };
+}
 
 export async function GET(request: NextRequest) {
   // Set up SSE headers
@@ -26,10 +74,14 @@ export async function GET(request: NextRequest) {
             })
           ]);
 
+          const transformedWarnings = warningMarkers
+            .filter((marker) => marker.lat !== null && marker.lng !== null)
+            .map(transformWarningMarker);
+
           const data = `data: ${JSON.stringify({
             type: 'initial',
             events,
-            warningMarkers,
+            warningMarkers: transformedWarnings,
             timestamp: Date.now()
           })}\n\n`;
 
@@ -85,11 +137,15 @@ export async function GET(request: NextRequest) {
                 orderBy: { createdAt: 'desc' }
               });
 
-              if (recentEvents.length > 0 || recentWarnings.length > 0) {
+              const transformedWarnings = recentWarnings
+                .filter((marker) => marker.lat !== null && marker.lng !== null)
+                .map(transformWarningMarker);
+
+              if (recentEvents.length > 0 || transformedWarnings.length > 0) {
                 const data = `data: ${JSON.stringify({
                   type: 'update',
                   events: recentEvents,
-                  warningMarkers: recentWarnings,
+                  warningMarkers: transformedWarnings,
                   timestamp: Date.now()
                 })}\n\n`;
 

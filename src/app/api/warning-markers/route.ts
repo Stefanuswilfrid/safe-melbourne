@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyIncidentType } from '@/lib/incident-classification';
 import { prisma } from '@/lib/prisma';
 
 export async function GET(request: NextRequest) {
@@ -66,33 +67,38 @@ export async function GET(request: NextRequest) {
     console.log(`📊 Found ${warningMarkers.length} warning markers`);
 
     // Transform the data to match the expected format
-    const transformedMarkers = warningMarkers.map(marker => ({
-      id: marker.id,
-      title: `Warning: ${marker.extractedLocation}`,
-      description: marker.text.length > 200 ? 
-        marker.text.substring(0, 200) + '...' : 
-        marker.text,
-      lat: marker.lat!,
-      lng: marker.lng!,
-      source: 'twitter',
-      url: `https://twitter.com/${(marker.userInfo as Record<string, unknown>)?.screen_name}/status/${marker.tweetId}`,
-      verified: marker.verified,
-      type: 'warning',
-      createdAt: marker.createdAt.toISOString(),
-      // Additional warning-specific fields
-      tweetId: marker.tweetId,
-      extractedLocation: marker.extractedLocation,
-      confidenceScore: marker.confidenceScore,
-      socialMetrics: JSON.stringify({
-        bookmarks: marker.bookmarks,
-        favorites: marker.favorites,
-        retweets: marker.retweets,
-        views: marker.views,
-        quotes: marker.quotes,
-        replies: marker.replies
-      }),
-      userInfo: JSON.stringify(marker.userInfo)
-    }));
+    const transformedMarkers = warningMarkers.map(marker => {
+      const type = classifyIncidentType(marker.text);
+      const label = type === 'protest' ? 'Protest' : type === 'road_closure' ? 'Road Closure' : 'Warning';
+
+      return {
+        id: marker.id,
+        title: `${label}: ${marker.extractedLocation}`,
+        description: marker.text.length > 200 ?
+          marker.text.substring(0, 200) + '...' :
+          marker.text,
+        lat: marker.lat!,
+        lng: marker.lng!,
+        source: 'twitter',
+        url: `https://twitter.com/${(marker.userInfo as Record<string, unknown>)?.screen_name}/status/${marker.tweetId}`,
+        verified: marker.verified,
+        type,
+        createdAt: marker.createdAt.toISOString(),
+        // Additional warning-specific fields
+        tweetId: marker.tweetId,
+        extractedLocation: marker.extractedLocation,
+        confidenceScore: marker.confidenceScore,
+        socialMetrics: JSON.stringify({
+          bookmarks: marker.bookmarks,
+          favorites: marker.favorites,
+          retweets: marker.retweets,
+          views: marker.views,
+          quotes: marker.quotes,
+          replies: marker.replies
+        }),
+        userInfo: JSON.stringify(marker.userInfo)
+      };
+    });
 
     return NextResponse.json({
       success: true,

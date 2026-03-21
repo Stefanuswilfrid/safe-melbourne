@@ -3,6 +3,8 @@ import { isMissingScrapeRunsTable } from '@/lib/scrape-runs-db';
 import type { ScrapeRunListRow } from './actions';
 import { ScrapingDashboardClient } from './ScrapingDashboardClient';
 
+export const dynamic = 'force-dynamic';
+
 export default async function ScrapingDashboardPage() {
   let initialRuns: ScrapeRunListRow[] = [];
   let schemaMissing = false;

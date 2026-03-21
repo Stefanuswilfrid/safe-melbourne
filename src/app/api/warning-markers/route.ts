@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
     // Transform the data to match the expected format
     const transformedMarkers = warningMarkers.map(marker => {
       const type = classifyIncidentType(marker.text);
-      const label = type === 'protest' ? 'Protest' : type === 'road_closure' ? 'Road Closure' : 'Warning';
+      const label = type === 'sex_offender' ? 'Sex Offender' : 'Crime';
 
       return {
         id: marker.id,

@@ -161,8 +161,8 @@ export const updateMapMarkers = (
       type: 'geojson',
       data: eventData,
       cluster: true,
-      clusterMaxZoom: 14,
-      clusterRadius: 50
+      clusterMaxZoom: 16,
+      clusterRadius: 65
     });
 
     // Add cluster circles (for groups of events)
@@ -215,7 +215,7 @@ export const updateMapMarkers = (
       source: 'events',
       filter: ['all', ['==', ['get', 'type'], 'crime'], ['!', ['has', 'point_count']]],
       paint: {
-        'circle-radius': 28,
+        'circle-radius': 22,
         'circle-color': '#FFD700',
         'circle-stroke-color': '#FF4500',
         'circle-stroke-width': 4,
@@ -230,7 +230,7 @@ export const updateMapMarkers = (
       source: 'events',
       filter: ['all', ['==', ['get', 'type'], 'sex_offender'], ['!', ['has', 'point_count']]],
       paint: {
-        'circle-radius': 28,
+        'circle-radius': 22,
         'circle-color': '#9333ea',
         'circle-stroke-color': '#6b21a8',
         'circle-stroke-width': 4,
@@ -246,7 +246,7 @@ export const updateMapMarkers = (
       filter: ['!', ['has', 'point_count']],
       layout: {
         'text-field': ['get', 'emoji'],
-        'text-size': 28,
+        'text-size': 24,
         'text-anchor': 'center',
         'text-justify': 'center',
         'text-allow-overlap': true

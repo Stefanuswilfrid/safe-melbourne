@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-import { OpenAI } from 'openai';
+
 
 
 // const prisma = new PrismaClient();

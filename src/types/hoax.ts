@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 
 export interface HoaxFactCheck {
   guid: string;

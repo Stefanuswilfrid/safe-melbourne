@@ -52,8 +52,8 @@ export const useMap = (containerRef: React.RefObject<HTMLDivElement | null>) => 
     map.current = new mapboxgl.Map({
       container: containerRef.current,
       style: initialStyleUrl,
-      center: [144.9631, -37.8136], // Center on Melbourne
-      zoom: 10,
+      center: [144.8, -37.8136], // Center on Melbourne (shifted slightly west)
+      zoom: 8,
       attributionControl: false
     });
 

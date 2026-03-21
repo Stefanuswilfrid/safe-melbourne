@@ -1,14 +1,72 @@
 import { Event } from "../types/event";
 
+type Coordinates = [number, number];
+
+function offsetCoordinatesByMeters(
+  lng: number,
+  lat: number,
+  radiusMeters: number,
+  angleRadians: number
+): Coordinates {
+  const latOffset = (radiusMeters * Math.sin(angleRadians)) / 111320;
+  const lngOffset =
+    (radiusMeters * Math.cos(angleRadians)) /
+    (111320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.1));
+
+  return [lng + lngOffset, lat + latOffset];
+}
+
+function buildDisplayCoordinates(events: Event[]): Map<string | number, Coordinates> {
+  const coordinatesByEventId = new Map<string | number, Coordinates>();
+  const grouped = new Map<string, Event[]>();
+
+  for (const event of events) {
+    const key = `${event.lat.toFixed(5)},${event.lng.toFixed(5)}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(event);
+  }
+
+  for (const groupEvents of grouped.values()) {
+    if (groupEvents.length === 1) {
+      const event = groupEvents[0];
+      coordinatesByEventId.set(event.id, [event.lng, event.lat]);
+      continue;
+    }
+
+    const pointsPerRing = 8;
+    const baseRadiusMeters = 35;
+    const ringRadiusStepMeters = 24;
+
+    groupEvents.forEach((event, index) => {
+      const ring = Math.floor(index / pointsPerRing);
+      const indexInRing = index % pointsPerRing;
+      const pointsInThisRing = Math.min(pointsPerRing, groupEvents.length - ring * pointsPerRing);
+      const angle = (2 * Math.PI * indexInRing) / pointsInThisRing + ring * 0.35;
+      const radius = baseRadiusMeters + ring * ringRadiusStepMeters;
+
+      coordinatesByEventId.set(
+        event.id,
+        offsetCoordinatesByMeters(event.lng, event.lat, radius, angle)
+      );
+    });
+  }
+
+  return coordinatesByEventId;
+}
+
 // Function to create GeoJSON from events
 export const createEventGeoJSON = (events: Event[]) => {
+  const coordinatesByEventId = buildDisplayCoordinates(events);
+
   return {
     type: 'FeatureCollection' as const,
-    features: events.map(event => ({
+    features: events.map(event => {
+      const displayCoordinates = coordinatesByEventId.get(event.id) || [event.lng, event.lat];
+      return {
       type: 'Feature' as const,
       geometry: {
         type: 'Point' as const,
-        coordinates: [event.lng, event.lat] // [lng, lat]
+        coordinates: displayCoordinates // [lng, lat]
       },
       properties: {
         id: event.id,
@@ -31,9 +89,12 @@ export const createEventGeoJSON = (events: Event[]) => {
         extractedLocation: event.extractedLocation,
         confidenceScore: event.confidenceScore,
         socialMetrics: event.socialMetrics,
-        userInfo: event.userInfo
+        userInfo: event.userInfo,
+        originalLat: event.lat,
+        originalLng: event.lng
       }
-    }))
+    };
+    })
   };
 };
 

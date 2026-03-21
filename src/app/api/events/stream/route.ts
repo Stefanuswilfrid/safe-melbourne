@@ -25,7 +25,7 @@ function transformWarningMarker(marker: {
   replies?: number;
 }) {
   const type = classifyIncidentType(marker.text);
-  const label = type === 'protest' ? 'Protest' : type === 'road_closure' ? 'Road Closure' : 'Warning';
+  const label = type === 'sex_offender' ? 'Sex Offender' : 'Crime';
 
   return {
     id: marker.id,

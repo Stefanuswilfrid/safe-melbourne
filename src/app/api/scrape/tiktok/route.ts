@@ -533,7 +533,7 @@ export async function GET(request: NextRequest) {
     let videos = await scrapeTikTokVideos(dateToday);
     console.log(`📹 Found ${videos.length} TikTok videos for incident search`);
 
-    const DEFAULT_LLM_LIMIT = 50;
+    const DEFAULT_LLM_LIMIT = 10;
     const effectiveLimit = safeLimit || DEFAULT_LLM_LIMIT;
     const originalCount = videos.length;
     videos = videos.slice(0, effectiveLimit);

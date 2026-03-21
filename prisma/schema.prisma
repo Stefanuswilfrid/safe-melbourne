@@ -116,3 +116,20 @@ model RSSMetrics {
   @@map("rss_metrics")
   @@index([timestamp], map: "idx_rss_metrics_timestamp")
 }
+
+/// One row per scrape invocation (TikTok pipeline, Twitter search, etc.) for dashboards and audits.
+model ScrapeRun {
+  id          String    @id @default(cuid())
+  job         String
+  trigger     String
+  status      String
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  durationMs  Int?
+  summary     Json?
+  outcomes    Json?
+  error       String?
+
+  @@index([startedAt(sort: Desc)], map: "idx_scrape_runs_startedAt")
+  @@map("scrape_runs")
+}

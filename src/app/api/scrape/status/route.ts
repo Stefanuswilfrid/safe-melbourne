@@ -17,6 +17,7 @@ export async function GET(_request: NextRequest) {
     const response = {
       success: true,
       status: scrapingProgress.isActive ? 'scraping' : 'idle',
+      scrapeRunId: scrapingProgress.currentRunId,
       progress: {
         current: scrapingProgress.processedVideos,
         total: scrapingProgress.totalVideos,

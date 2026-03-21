@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
- * Cron Job Endpoint — TikTok + Twitter Scraping
+ * Cron Job Endpoint — TikTok Scraping (+ optional Twitter)
  *
  * Called by Vercel cron (vercel.json) once daily at 09:00 UTC.
- * Runs TikTok and Twitter scraping in parallel.
+ *
+ * Twitter scraping is disabled by default — it only created WarningMarker
+ * records (never Events), burning RapidAPI quota with no map-visible output.
+ * Set TWITTER_SCRAPE_ENABLED=true to re-enable.
  */
 
 async function parseJsonResponse(response: Response): Promise<any> {
@@ -25,7 +28,9 @@ async function parseJsonResponse(response: Response): Promise<any> {
 }
 
 export async function GET(request: NextRequest) {
-  console.log('⏰ Cron job triggered - Starting TikTok + Twitter scraping...');
+  const twitterEnabled = process.env.TWITTER_SCRAPE_ENABLED === 'true';
+
+  console.log(`⏰ Cron job triggered - Starting TikTok scraping...${twitterEnabled ? ' (+ Twitter)' : ' (Twitter disabled)'}`);
 
   const scrapeSecret = process.env.SCRAPE_SECRET;
 
@@ -50,38 +55,44 @@ export async function GET(request: NextRequest) {
 
   console.log(`📍 Base URL: ${baseUrl}`);
 
-  // Run TikTok and Twitter scraping in parallel
-  const [tiktokResult, twitterResult] = await Promise.allSettled([
-    // --- TikTok ---
+  const jobs: Promise<{ response: Response | null; data: any }>[] = [
+    // --- TikTok (always enabled) ---
     fetch(`${baseUrl}/api/scrape/tiktok?limit=${encodeURIComponent(limit)}`, {
       method: 'GET',
       headers: internalHeaders,
       cache: 'no-store',
       signal: AbortSignal.timeout(25 * 60 * 1000),
     }).then(r => parseJsonResponse(r).then(data => ({ response: r, data }))),
+  ];
 
-    // --- Twitter ---
-    fetch(`${baseUrl}/api/twitter/search`, {
-      method: 'GET',
-      headers: internalHeaders,
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5 * 60 * 1000),
-    }).then(r => parseJsonResponse(r).then(data => ({ response: r, data }))),
-  ]);
+  if (twitterEnabled) {
+    jobs.push(
+      fetch(`${baseUrl}/api/twitter/search`, {
+        method: 'GET',
+        headers: internalHeaders,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5 * 60 * 1000),
+      }).then(r => parseJsonResponse(r).then(data => ({ response: r, data }))),
+    );
+  }
 
-  const tiktok = tiktokResult.status === 'fulfilled'
-    ? tiktokResult.value
-    : { response: null, data: { success: false, error: (tiktokResult.reason as Error)?.message } };
+  const settled = await Promise.allSettled(jobs);
 
-  const twitter = twitterResult.status === 'fulfilled'
-    ? twitterResult.value
-    : { response: null, data: { success: false, error: (twitterResult.reason as Error)?.message } };
+  const tiktok = settled[0]!.status === 'fulfilled'
+    ? settled[0]!.value
+    : { response: null, data: { success: false, error: (settled[0] as PromiseRejectedResult).reason?.message } };
+
+  const twitter = twitterEnabled
+    ? (settled[1]!.status === 'fulfilled'
+        ? settled[1]!.value
+        : { response: null, data: { success: false, error: (settled[1] as PromiseRejectedResult).reason?.message } })
+    : { response: null, data: { success: true, skipped: true, message: 'Twitter scraping disabled (set TWITTER_SCRAPE_ENABLED=true to enable)' } };
 
   console.log(`🎬 TikTok: ${tiktok.data.success ? '✅' : '❌'} ${tiktok.data.message || tiktok.data.error || ''}`);
-  console.log(`🐦 Twitter: ${twitter.data.success ? '✅' : '❌'} processed=${twitter.data.processed ?? 'N/A'}`);
+  console.log(`🐦 Twitter: ${twitter.data.skipped ? '⏭️ skipped' : (twitter.data.success ? '✅' : '❌')} ${twitter.data.message || ''}`);
 
   return NextResponse.json({
-    success: tiktok.data.success || twitter.data.success,
+    success: tiktok.data.success,
     timestamp: new Date().toISOString(),
     tiktok: tiktok.data,
     twitter: twitter.data,

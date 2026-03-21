@@ -17,6 +17,13 @@ export interface APIKeyConfig {
     cursor?: number;
     count?: number;
   }
+
+  /** User feed (per-account) — cursor is provider-specific (number or string). */
+  export interface UserPostsRequest {
+    uniqueId: string;
+    cursor?: string | number;
+    count?: number;
+  }
   
   export interface ScrapeResult {
     success: boolean;
@@ -127,6 +134,60 @@ export interface APIKeyConfig {
     /**
      * Make a single API call with specified key and cursor
      */
+    /**
+     * Fetch a page of videos for one TikTok account (username / unique_id, no @).
+     * Endpoint defaults to `user/posts` on tiktok-scraper7; override with SCRAPE_TIKTOK_USER_POSTS_PATH if your RapidAPI tab shows a different path.
+     */
+    async makeUserPostsAPICall(
+      keyConfig: APIKeyConfig,
+      request: UserPostsRequest
+    ): Promise<ScrapeResult> {
+      try {
+        const { uniqueId, cursor = 0, count = 30 } = request;
+        const path =
+          (process.env.SCRAPE_TIKTOK_USER_POSTS_PATH || 'user/posts').replace(/^\/+/, '');
+
+        const url = `https://tiktok-scraper7.p.rapidapi.com/${path}?unique_id=${encodeURIComponent(uniqueId)}&count=${count}&cursor=${encodeURIComponent(String(cursor))}`;
+
+        const options = {
+          method: 'GET',
+          headers: {
+            'x-rapidapi-key': keyConfig.key,
+            'x-rapidapi-host': 'tiktok-scraper7.p.rapidapi.com',
+          },
+        };
+
+        console.log(
+          `🌐 User posts API (${path}) with ${keyConfig.name}, @${uniqueId}, cursor: ${cursor}, count: ${count}`
+        );
+
+        const response = await fetch(url, options);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        keyConfig.lastUsed = new Date();
+        keyConfig.callsThisMonth = (keyConfig.callsThisMonth || 0) + 1;
+
+        return {
+          success: true,
+          data,
+          keyUsed: keyConfig.name,
+        };
+      } catch (error) {
+        console.error(`❌ User posts API failed with ${keyConfig.name}:`, error);
+
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          keyUsed: keyConfig.name,
+        };
+      }
+    }
+
     async makeAPICall(keyConfig: APIKeyConfig, request: ScrapeRequest): Promise<ScrapeResult> {
       try {
         const { keyword, cursor = 0, count = 30 } = request;
@@ -224,6 +285,13 @@ export interface APIKeyConfig {
       console.log(`✅ Sequential calls completed: ${successCount}/${results.length} successful`);
       
       return results;
+    }
+
+    /**
+     * Active RapidAPI keys (for account-mode pagination in the route).
+     */
+    getActiveKeys(): APIKeyConfig[] {
+      return this.keys.filter((k) => k.isActive);
     }
   
     /**

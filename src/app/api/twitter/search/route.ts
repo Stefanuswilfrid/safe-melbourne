@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { TwitterSearchResponse, TwitterTimeline } from '@/types/twitter';
+import {
+  appendOutcome,
+  createScrapeRun,
+  finishScrapeRun,
+  markScrapeRunFailed,
+  type ScrapeOutcome,
+} from '@/lib/scrape-run';
 
 // Rate limiting - simple in-memory store (consider Redis for production)
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
@@ -26,6 +33,20 @@ function checkRateLimit(ip: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
+  // Twitter scraping is disabled by default — results only created WarningMarkers,
+  // never Events. Set TWITTER_SCRAPE_ENABLED=true to re-enable.
+  if (process.env.TWITTER_SCRAPE_ENABLED !== 'true') {
+    return NextResponse.json({
+      success: false,
+      disabled: true,
+      error: 'Twitter scraping is disabled. Set TWITTER_SCRAPE_ENABLED=true to enable.',
+    }, { status: 200 });
+  }
+
+  let scrapeRunId: string | null = null;
+  let runStartedAt = Date.now();
+  const outcomes: ScrapeOutcome[] = [];
+
   try {
     // Get client IP for rate limiting
     const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
@@ -50,9 +71,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const trigger = isInternalCron ? 'internal_cron' : 'manual';
+    runStartedAt = Date.now();
+    try {
+      const row = await createScrapeRun({
+        job: 'twitter_search',
+        trigger,
+        summary: { phase: 'init' },
+      });
+      scrapeRunId = row.id;
+    } catch (auditErr) {
+      console.error('ScrapeRun create failed (Twitter, continuing):', auditErr);
+    }
+
     // Check if RapidAPI key is configured
     if (!process.env.RAPIDAPI_KEY) {
       console.error('❌ RapidAPI key not configured');
+      if (scrapeRunId) {
+        await markScrapeRunFailed(scrapeRunId, runStartedAt, 'Twitter API not configured');
+        scrapeRunId = null;
+      }
       return NextResponse.json(
         { success: false, error: 'Twitter API not configured' },
         { status: 500 }
@@ -130,6 +168,7 @@ export async function GET(request: NextRequest) {
 
     // Process and store tweets in database
     let processedCount = 0;
+    let skippedExisting = 0;
     const errors: string[] = [];
 
     for (const tweet of allTweets) {
@@ -141,6 +180,7 @@ export async function GET(request: NextRequest) {
 
         if (existing) {
           console.log(`⏭️ Tweet ${tweet.tweet_id} already exists, skipping...`);
+          skippedExisting++;
           continue;
         }
 
@@ -167,7 +207,7 @@ export async function GET(request: NextRequest) {
         };
 
         // Create warning marker record
-        await prisma.warningMarker.create({
+        const marker = await prisma.warningMarker.create({
           data: {
             tweetId: tweet.tweet_id,
             text: tweet.text,
@@ -185,6 +225,12 @@ export async function GET(request: NextRequest) {
 
         processedCount++;
         console.log(`✅ Saved tweet ${tweet.tweet_id} to database`);
+        appendOutcome(outcomes, {
+          type: 'db_warning_marker_created',
+          markerId: marker.id,
+          tweetId: tweet.tweet_id,
+          textPreview: tweet.text?.slice(0, 160) ?? '',
+        });
 
       } catch (error) {
         const errorMsg = `Failed to process tweet ${tweet.tweet_id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -199,8 +245,35 @@ export async function GET(request: NextRequest) {
       console.warn(`⚠️ ${errors.length} errors occurred during processing`);
     }
 
+    appendOutcome(outcomes, {
+      type: 'twitter_skipped_existing',
+      count: skippedExisting,
+    });
+
+    if (scrapeRunId) {
+      try {
+        await finishScrapeRun(scrapeRunId, {
+          status: errors.length > 0 ? 'partial' : 'success',
+          startedAt: runStartedAt,
+          summary: {
+            totalFound: allTweets.length,
+            processed: processedCount,
+            skippedExisting,
+            keywords: searchKeywords,
+            errorsCount: errors.length,
+            trigger,
+          },
+          outcomes,
+          error: errors.length > 0 ? errors[0]! : null,
+        });
+      } catch (auditErr) {
+        console.error('finishScrapeRun failed (Twitter):', auditErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
+      scrapeRunId: scrapeRunId ?? undefined,
       totalFound: allTweets.length,
       processed: processedCount,
       keywords: searchKeywords,
@@ -209,10 +282,19 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ Twitter search API error:', error);
+    const msg = error instanceof Error ? error.message : 'Unknown error occurred';
+    if (scrapeRunId) {
+      try {
+        await markScrapeRunFailed(scrapeRunId, runStartedAt, msg);
+      } catch (auditErr) {
+        console.error('markScrapeRunFailed failed (Twitter):', auditErr);
+      }
+    }
     return NextResponse.json(
       { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error occurred' 
+        error: msg,
+        scrapeRunId: scrapeRunId ?? undefined,
       },
       { status: 500 }
     );

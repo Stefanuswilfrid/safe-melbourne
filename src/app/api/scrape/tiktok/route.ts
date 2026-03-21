@@ -3,10 +3,10 @@ import { extractDetailedLocationFromTikTok } from '@/lib/openrouter';
 import { classifyIncidentType } from '@/lib/incident-classification';
 import { prisma } from '@/lib/prisma';
 
-import { Root, Video } from '@/types/tiktok';
+import { Video } from '@/types/tiktok';
 
 // Import shared progress tracking and rate limiter
-import { scrapingProgress, updateScrapingProgress, resetScrapingProgress } from '@/lib/scraping-progress';
+import { scrapingProgress, updateScrapingProgress } from '@/lib/scraping-progress';
 import { scrapeRateLimiter, checkRateLimit } from '@/lib/rate-limiter';
 
 // Import Pub/Sub for live updates
@@ -15,43 +15,47 @@ import { publishNewEvent, publishSystemMessage } from '@/lib/pubsub';
 // Import RapidAPI key manager
 import { rapidAPIManager, type ScrapeResult } from '@/lib/rapidapi-key-manager';
 import { authenticateScrapeRequest, getCorsHeaders, handleCors } from '@/lib/auth-middleware';
+import {
+  getKeywordSearchAuthorAllowlist,
+  getResolvedTikTokAccountHandles,
+  getTikTokSearchKeywords,
+} from '@/config/tiktok-scrape-accounts';
+import {
+  appendOutcome,
+  createScrapeRun,
+  finishScrapeRun,
+  markScrapeRunFailed,
+  type ScrapeOutcome,
+} from '@/lib/scrape-run';
 
-async function scrapeTikTokVideos(dateToday: string): Promise<Video[]> {
+function resolveTikTokTrigger(isVercelCron: boolean, isInternalCron: boolean): string {
+  if (isVercelCron) return 'vercel_cron';
+  if (isInternalCron) return 'internal_cron';
+  return 'manual';
+}
+
+/** Normalize Tiktok Scraper7 payloads (search + user feed). */
+function extractVideosFromProviderPayload(resultData: unknown): Video[] {
+  if (!resultData || typeof resultData !== 'object') return [];
+  const root = resultData as { data?: { videos?: unknown; aweme_list?: unknown } };
+  const inner = root.data;
+  if (!inner || typeof inner !== 'object') return [];
+  const videos = (inner as { videos?: unknown }).videos;
+  if (Array.isArray(videos)) return videos as Video[];
+  const awemeList = (inner as { aweme_list?: unknown }).aweme_list;
+  if (Array.isArray(awemeList)) return awemeList as Video[];
+  return [];
+}
+
+/** TikTok search for each keyword, then keep only videos from curated accounts (see config). */
+async function scrapeTikTokVideosByKeywords(dateToday: string): Promise<Video[]> {
   try {
     console.log(`📅 Today's date: ${dateToday}`);
-    console.log(`🔍 Searching for Melbourne incidents...`);
-
-    // Configurable keyword list.
-    // - SCRAPE_KEYWORDS: pipe-separated list, e.g.
-    //   "melbourne incident|melbourne stabbing|melbourne crash"
-    // - {date} placeholder (optional) will be replaced with today's date.
-    const rawKeywords = process.env.SCRAPE_KEYWORDS;
-    const baseKeywords = (rawKeywords
-      ? rawKeywords.split('|')
-      : [
-          // Very broad control keyword to almost guarantee some results,
-          // useful to confirm the pipeline is working end-to-end.
-          'melbourne protest',
-          // More targeted incident-style keywords
-          'melbourne incident',
-          'melbourne stabbing',
-          'melbourne fire',
-          'melbourne explosion',  
-          'melbourne crash',
-          'melbourne car accident',
-          'melbourne shooting',
-          'melbourne fight',
-          'melbourne robbery',
-          'melbourne theft',
-          'melbourne assault',
-          'melbourne murder',
-          'melbourne rape',
-          'melbourne kidnapping',
-          'melbourne hijacking',
-          'melbourne terrorism',
-          'melbourne bomb',
-        ]).map(k => k.trim()).filter(Boolean);
-
+    const handles = getResolvedTikTokAccountHandles();
+    const baseKeywords = getTikTokSearchKeywords();
+    console.log(
+      `🔍 TikTok: ${baseKeywords.length} keyword(s) → results limited to ${handles.length} curated account(s)`
+    );
     console.log('🔎 Active search keywords:', baseKeywords);
 
     // Apply rate limiting before making API calls
@@ -87,9 +91,9 @@ async function scrapeTikTokVideos(dateToday: string): Promise<Video[]> {
 
       for (const result of resultsForKeyword) {
         // Some providers use different 'code' semantics; rely on presence of videos instead.
-        const videos = result.data?.data?.videos;
+        const videos = extractVideosFromProviderPayload(result.data);
 
-        if (result.success && Array.isArray(videos) && videos.length > 0) {
+        if (result.success && videos.length > 0) {
           allVideos.push(...videos);
           totalVideosFound += videos.length;
           console.log(`✅ ${result.keyUsed} [${keyword}]: Found ${videos.length} videos`);
@@ -113,16 +117,35 @@ async function scrapeTikTokVideos(dateToday: string): Promise<Video[]> {
       console.log(`🔄 Removed ${allVideos.length - uniqueVideos.length} duplicate videos`);
     }
 
-    console.log(`📊 Final unique videos: ${uniqueVideos.length}`);
-    return uniqueVideos;
+    const authorAllowlist = getKeywordSearchAuthorAllowlist();
+    const allowed = new Set(authorAllowlist);
+    const before = uniqueVideos.length;
+    const filtered = uniqueVideos.filter((video) => {
+      const uid = video.author?.unique_id?.trim().toLowerCase();
+      return uid ? allowed.has(uid) : false;
+    });
+    console.log(
+      `🎯 Curated accounts only: ${before} → ${filtered.length} videos (${allowed.size} allowed handle(s))`
+    );
+    console.log(`📊 Final unique videos (after author filter): ${filtered.length}`);
+    return filtered;
+  } catch (error) {
+    console.error('Error in TikTok keyword scraping:', error);
+    return [];
+  }
+}
 
+/** Keyword search (default terms in config) → only videos from curated accounts. */
+async function scrapeTikTokVideos(dateToday: string): Promise<Video[]> {
+  try {
+    return await scrapeTikTokVideosByKeywords(dateToday);
   } catch (error) {
     console.error('Error in TikTok scraping:', error);
     return [];
   }
 }
 
-async function processTikTokVideo(video: Video): Promise<boolean> {
+async function processTikTokVideo(video: Video, outcomes: ScrapeOutcome[]): Promise<boolean> {
   const startTime = Date.now();
 
   try {
@@ -147,6 +170,11 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
 
     if (existingEvent) {
       console.log(`⚠️ TikTok video already exists: ${video.video_id}`);
+      appendOutcome(outcomes, {
+        type: 'tiktok_skip_existing_event',
+        videoId: video.video_id,
+        url: tiktokUrl,
+      });
       return false;
     }
 
@@ -165,6 +193,11 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
 
     if (!locationResult.success || !locationResult.exact_location) {
       console.log(`❌ No detailed location found in TikTok video after retry: ${video.video_id}`);
+      appendOutcome(outcomes, {
+        type: 'tiktok_no_location',
+        videoId: video.video_id,
+        url: tiktokUrl,
+      });
       return false;
     }
 
@@ -216,6 +249,12 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
     if (!bestGeocodeResult) {
       console.log(`❌ Failed to geocode any location for video: ${video.video_id}`);
       console.log(`   Tried locations: ${uniqueLocationsToGeocode.join(', ')}`);
+      appendOutcome(outcomes, {
+        type: 'tiktok_geocode_failed',
+        videoId: video.video_id,
+        url: tiktokUrl,
+        tried: uniqueLocationsToGeocode,
+      });
       return false;
     }
 
@@ -242,7 +281,7 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
 
     // Create or update event in database using upsert to prevent duplicates
     try {
-      const result = await prisma.event.upsert({
+      const savedEvent = await prisma.event.upsert({
         where: {
           url: tiktokUrl
         },
@@ -274,18 +313,33 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
       });
 
       // Publish new event to Redis for live updates
-      await publishNewEvent(result.id, 'created', {
-        title: result.title,
+      await publishNewEvent(savedEvent.id, 'created', {
+        title: savedEvent.title,
         lat: bestGeocodeResult.lat,
         lng: bestGeocodeResult.lng,
-        type: result.type,
-        source: result.source,
+        type: savedEvent.type,
+        source: savedEvent.source,
         extractedLocation: bestLocation
+      });
+
+      appendOutcome(outcomes, {
+        type: 'db_event_upserted',
+        source: 'TikTok',
+        eventId: savedEvent.id,
+        videoId: video.video_id,
+        url: tiktokUrl,
+        extractedLocation: bestLocation,
+        incidentType: inferredType,
       });
 
     } catch (dbError) {
       if (dbError instanceof Error && dbError.message.includes('Unique constraint')) {
         console.log(`⚠️ Event already exists for URL: ${tiktokUrl} - skipping`);
+        appendOutcome(outcomes, {
+          type: 'tiktok_skip_unique_race',
+          videoId: video.video_id,
+          url: tiktokUrl,
+        });
         return false; // Don't count as processed since it already existed
       }
       throw dbError; // Re-throw other database errors
@@ -303,6 +357,11 @@ async function processTikTokVideo(video: Video): Promise<boolean> {
   } catch (error) {
     const processingTime = Date.now() - startTime;
     console.error(`❌ Error processing TikTok video ${video.video_id} (${processingTime}ms):`, error);
+    appendOutcome(outcomes, {
+      type: 'tiktok_pipeline_error',
+      videoId: video.video_id,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }
@@ -365,6 +424,10 @@ export async function GET(request: NextRequest) {
   console.log('🔐 Scrape request authenticated successfully');
 
   const scrapingStartTime = Date.now();
+  const trigger = resolveTikTokTrigger(isVercelCronJob, isInternalCronCall);
+  let scrapeRunId: string | null = null;
+  let runStartedAt = scrapingStartTime;
+  const outcomes: ScrapeOutcome[] = [];
 
   try {
     // Check if scraping is already in progress
@@ -405,6 +468,18 @@ export async function GET(request: NextRequest) {
 
     console.log(`📊 Rate limiter: ${rateLimitCheck.remaining} calls remaining, resets in ${Math.ceil((rateLimitCheck.reset || 0) / 1000)}s`);
 
+    runStartedAt = Date.now();
+    try {
+      const row = await createScrapeRun({
+        job: 'tiktok',
+        trigger,
+        summary: { limit: safeLimit ?? null },
+      });
+      scrapeRunId = row.id;
+    } catch (auditErr) {
+      console.error('ScrapeRun create failed (continuing without audit log):', auditErr);
+    }
+
     // Initialize progress tracking
     updateScrapingProgress({
       isActive: true,
@@ -413,7 +488,8 @@ export async function GET(request: NextRequest) {
       currentBatch: 0,
       totalBatches: 0,
       startTime: scrapingStartTime,
-      lastUpdate: new Date().toISOString()
+      lastUpdate: new Date().toISOString(),
+      currentRunId: scrapeRunId,
     });
 
     // Get today's date for reference
@@ -440,7 +516,7 @@ export async function GET(request: NextRequest) {
 
     // Update progress with total count
     scrapingProgress.totalVideos = videos.length;
-    scrapingProgress.totalBatches = Math.ceil(videos.length / 3);
+    scrapingProgress.totalBatches = Math.max(1, Math.ceil(videos.length / dynamicBatchSize));
     scrapingProgress.lastUpdate = new Date().toISOString();
 
     let processedCount = 0;
@@ -462,7 +538,7 @@ export async function GET(request: NextRequest) {
       // Process batch concurrently
       const batchPromises = batch.map(async (video) => {
         try {
-          const success = await processTikTokVideo(video);
+          const success = await processTikTokVideo(video, outcomes);
           // Update processed count in progress tracking
           if (success) {
             scrapingProgress.processedVideos++;
@@ -496,7 +572,8 @@ export async function GET(request: NextRequest) {
     updateScrapingProgress({
       ...scrapingProgress,
       isActive: false,
-      lastUpdate: new Date().toISOString()
+      lastUpdate: new Date().toISOString(),
+      currentRunId: null,
     });
 
     console.log(`🎉 Scraping completed in ${totalTime}ms`);
@@ -514,12 +591,52 @@ export async function GET(request: NextRequest) {
     // Get key usage statistics
     const keyStats = rapidAPIManager.getKeyUsageStats();
 
+    const scrapeSource = {
+      mode: 'keywords_on_curated_accounts' as const,
+      keywords: getTikTokSearchKeywords(),
+      keywordsSource: process.env.SCRAPE_KEYWORDS?.trim() ? ('SCRAPE_KEYWORDS' as const) : ('default_config' as const),
+      authorAllowlist: getKeywordSearchAuthorAllowlist(),
+      accountsListSource: process.env.SCRAPE_TIKTOK_ACCOUNTS?.trim()
+        ? ('SCRAPE_TIKTOK_ACCOUNTS' as const)
+        : ('default_config' as const),
+    };
+
+    if (scrapeRunId) {
+      try {
+        await finishScrapeRun(scrapeRunId, {
+          status: 'success',
+          startedAt: runStartedAt,
+          summary: {
+            videos: videos.length,
+            videosDiscovered: originalCount,
+            processed: processedCount,
+            date: dateToday,
+            scrapeSource,
+            totalTime,
+            avgTimePerVideo,
+            isPeakHour: rapidAPIManager.isPeakHour(),
+            keyUsage: keyStats,
+            rateLimit: {
+              remainingCalls: finalRemainingCalls,
+              resetInSeconds: Math.ceil(finalTimeUntilReset / 1000),
+            },
+            trigger,
+          },
+          outcomes,
+          error: null,
+        });
+      } catch (auditErr) {
+        console.error('finishScrapeRun failed:', auditErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
+      scrapeRunId: scrapeRunId ?? undefined,
       videos: videos.length,
       processed: processedCount,
       date: dateToday,
-      keywords: 'melbourne incident keywords',
+      scrapeSource,
       totalTime: totalTime,
       avgTimePerVideo: avgTimePerVideo,
       isPeakHour: rapidAPIManager.isPeakHour(),
@@ -538,12 +655,22 @@ export async function GET(request: NextRequest) {
     updateScrapingProgress({
       ...scrapingProgress,
       isActive: false,
-      lastUpdate: new Date().toISOString()
+      lastUpdate: new Date().toISOString(),
+      currentRunId: null,
     });
+
+    const errMsg = error instanceof Error ? error.message : 'Failed to scrape TikTok videos';
+    if (scrapeRunId) {
+      try {
+        await markScrapeRunFailed(scrapeRunId, runStartedAt, errMsg);
+      } catch (auditErr) {
+        console.error('markScrapeRunFailed failed:', auditErr);
+      }
+    }
 
     console.error(`❌ Error in TikTok scraping API (${totalTime}ms):`, error);
     return NextResponse.json(
-      { success: false, error: 'Failed to scrape TikTok videos' },
+      { success: false, error: 'Failed to scrape TikTok videos', scrapeRunId: scrapeRunId ?? undefined },
       {
         status: 500,
         headers: getCorsHeaders()

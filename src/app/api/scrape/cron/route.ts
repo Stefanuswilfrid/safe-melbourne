@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     ? process.env.NEXT_PUBLIC_APP_URL || 'https://safe-melbourne.vercel.app'
     : 'http://localhost:3000';
 
-  const limit = process.env.SCRAPE_CRON_LIMIT || '10';
+  const limit = process.env.SCRAPE_CRON_LIMIT || '50';
   const internalHeaders = {
     'x-internal-cron': 'true',
     'x-scrape-secret': scrapeSecret,

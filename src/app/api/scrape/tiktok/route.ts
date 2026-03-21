@@ -34,6 +34,20 @@ function resolveTikTokTrigger(isVercelCron: boolean, isInternalCron: boolean): s
   return 'manual';
 }
 
+function isGenericMelbourneFallbackLocation(location: string): boolean {
+  const normalized = location
+    .toLowerCase()
+    .replace(/[.]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return (
+    /^melbourne(?:,\s*(?:vic|victoria))?$/.test(normalized) ||
+    /^victoria(?:,\s*australia)?$/.test(normalized) ||
+    /^vic$/.test(normalized)
+  );
+}
+
 /** Normalize Tiktok Scraper7 payloads (search + user feed). */
 function extractVideosFromProviderPayload(resultData: unknown): Video[] {
   if (!resultData || typeof resultData !== 'object') return [];
@@ -226,20 +240,19 @@ async function processTikTokVideo(video: Video, outcomes: ScrapeOutcome[]): Prom
     const { smartGeocodeLocations } = await import('@/lib/smart-geocoding');
     const geocodeResults = await smartGeocodeLocations(uniqueLocationsToGeocode);
 
-    // Find the best geocoding result
+    // Find the best geocoding result (prefer specific locations over broad city fallback)
     let bestGeocodeResult: any = null;
     let bestLocation: any = null;
+    let bestScore = -1;
 
     for (const [location, result] of geocodeResults) {
       if (result.success) {
-        // Prefer exact_location if it geocoded successfully
-        if (location === locationResult.exact_location) {
-          bestGeocodeResult = result;
-          bestLocation = location;
-          break;
-        }
-        // Otherwise use the first successful result
-        if (!bestGeocodeResult) {
+        const isExactLocation = location === locationResult.exact_location;
+        const isGenericFallback = isGenericMelbourneFallbackLocation(location);
+        const score = (isExactLocation ? 4 : 0) + (isGenericFallback ? 0 : 3) + (isExactLocation && isGenericFallback ? -3 : 0);
+
+        if (score > bestScore) {
+          bestScore = score;
           bestGeocodeResult = result;
           bestLocation = location;
         }
@@ -254,6 +267,23 @@ async function processTikTokVideo(video: Video, outcomes: ScrapeOutcome[]): Prom
         videoId: video.video_id,
         url: tiktokUrl,
         tried: uniqueLocationsToGeocode,
+      });
+      return false;
+    }
+
+    // Victoria bounding box: lat -34.0 to -39.2, lng 140.9 to 150.0
+    const VIC_BOUNDS = { latMin: -39.2, latMax: -34.0, lngMin: 140.9, lngMax: 150.2 };
+    const lat = bestGeocodeResult.lat!;
+    const lng = bestGeocodeResult.lng!;
+    if (lat < VIC_BOUNDS.latMin || lat > VIC_BOUNDS.latMax || lng < VIC_BOUNDS.lngMin || lng > VIC_BOUNDS.lngMax) {
+      console.log(`🚫 Coordinates (${lat}, ${lng}) fall outside Victoria — rejecting "${bestLocation}"`);
+      appendOutcome(outcomes, {
+        type: 'tiktok_outside_vic',
+        videoId: video.video_id,
+        url: tiktokUrl,
+        location: bestLocation,
+        lat,
+        lng,
       });
       return false;
     }
@@ -376,7 +406,7 @@ export async function GET(request: NextRequest) {
   const limitParam = requestUrl.searchParams.get('limit');
   const requestedLimit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
   const safeLimit = requestedLimit && Number.isFinite(requestedLimit)
-    ? Math.max(1, Math.min(100, requestedLimit))
+    ? Math.max(1, Math.min(200, requestedLimit))
     : undefined;
 
   // Check authentication: Vercel cron jobs or manual API calls
@@ -503,14 +533,13 @@ export async function GET(request: NextRequest) {
     let videos = await scrapeTikTokVideos(dateToday);
     console.log(`📹 Found ${videos.length} TikTok videos for incident search`);
 
-    const DEFAULT_LLM_LIMIT = 10;
+    const DEFAULT_LLM_LIMIT = 50;
     const effectiveLimit = safeLimit || DEFAULT_LLM_LIMIT;
     const originalCount = videos.length;
     videos = videos.slice(0, effectiveLimit);
     console.log(`✂️  Processing ${videos.length} of ${originalCount} videos (limit=${effectiveLimit})`);
 
-    // Choose a smaller batch size for cron-triggered runs
-    const dynamicBatchSize = isInternalCronCall ? 2 : 3;
+    const dynamicBatchSize = isInternalCronCall ? 2 : 4;
     console.log(`⚡ Processing with concurrent batches (${dynamicBatchSize} videos per batch)`);
 
     // Update progress with total count
@@ -521,8 +550,8 @@ export async function GET(request: NextRequest) {
     let processedCount = 0;
 
     // Process videos in concurrent batches to avoid overwhelming APIs
-    const BATCH_SIZE = dynamicBatchSize; // Process N videos concurrently
-    const DELAY_BETWEEN_BATCHES = 2000; // 2 second delay between batches
+    const BATCH_SIZE = dynamicBatchSize;
+    const DELAY_BETWEEN_BATCHES = 5000; // 5 second delay to stay under OpenAI 200k TPM limit
 
     for (let i = 0; i < videos.length; i += BATCH_SIZE) {
       const batchNumber = Math.floor(i / BATCH_SIZE) + 1;

@@ -224,27 +224,62 @@ function validateIndonesianLocation(extractedLocation: string): {isValid: boolea
   return { isValid: true };
 }
 
-// Apply location validation to results
-function applyLocationValidation(result: DetailedLocationResult): DetailedLocationResult {
-  if (!result.success || !result.exact_location) {
-    return result;
-  }
+// Apply location validation to result
 
-  const validation = validateIndonesianLocation(result.exact_location);
+const MELBOURNE_VIC_TERMS = [
+  'melbourne', 'vic', 'victoria',
+  // Major suburbs & areas
+  'noble park', 'dandenong', 'footscray', 'werribee', 'frankston', 'mernda',
+  'carlton', 'fitzroy', 'richmond', 'southbank', 'docklands', 'st kilda',
+  'kew', 'hawthorn', 'camberwell', 'box hill', 'ringwood', 'lilydale',
+  'cranbourne', 'berwick', 'pakenham', 'sunshine', 'melton', 'craigieburn',
+  'epping', 'south morang', 'bundoora', 'reservoir', 'thornbury', 'coburg',
+  'brunswick', 'northcote', 'collingwood', 'abbotsford', 'prahran',
+  'toorak', 'south yarra', 'windsor', 'caulfield', 'glen waverley',
+  'clayton', 'springvale', 'broadmeadows', 'sunbury', 'gisborne',
+  'geelong', 'ballarat', 'bendigo', 'traralgon', 'warrnambool', 'shepparton',
+  'cbd', 'flinders', 'bourke', 'swanston', 'collins', 'lonsdale',
+  'federation square', 'parliament house', 'state library',
+];
 
-  if (!validation.isValid && validation.correctedLocation) {
-    console.log(`⚠️ Location validation failed: ${validation.reason}`);
-    console.log(`🔄 Correcting "${result.exact_location}" → "${validation.correctedLocation}"`);
+function isMelbourneVicLocation(location: string): boolean {
+  const lower = location.toLowerCase();
+  return MELBOURNE_VIC_TERMS.some(term => lower.includes(term));
+}
 
-    return {
-      ...result,
-      exact_location: validation.correctedLocation,
-      all_locations: [validation.correctedLocation],
-      confidence: Math.min(result.confidence || 0.5, 0.7) // Reduce confidence for corrected locations
-    };
-  }
+export function isGenericMelbourneFallbackLocation(location: string): boolean {
+  const normalized = location
+    .toLowerCase()
+    .replace(/[.]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  return result;
+  return (
+    /^melbourne(?:,\s*(?:vic|victoria))?$/.test(normalized) ||
+    /^victoria(?:,\s*australia)?$/.test(normalized) ||
+    /^vic$/.test(normalized)
+  );
+}
+
+function appendVicSuffixIfNeeded(location: string): string {
+  return /\b(vic|victoria)\b/i.test(location) ? location : `${location}, VIC`;
+}
+
+function pickMostSpecificMelbourneLocation(locations: string[]): string | undefined {
+  const unique = [...new Set((locations || []).map((loc) => loc?.trim()).filter(Boolean))] as string[];
+  const candidates = unique.filter((loc) => isMelbourneVicLocation(loc) && !isGenericMelbourneFallbackLocation(loc));
+
+  if (candidates.length === 0) return undefined;
+
+  const specificityScore = (loc: string): number => {
+    const lower = loc.toLowerCase();
+    const tokenCount = lower.split(/\s+/).length;
+    const hasQualifier = /(station|street|st\b|road|rd\b|avenue|ave\b|parade|mall|square|gardens?|cbd)/.test(lower);
+    const hasComma = loc.includes(',');
+    return tokenCount + (hasQualifier ? 2 : 0) + (hasComma ? 1 : 0);
+  };
+
+  return candidates.sort((a, b) => specificityScore(b) - specificityScore(a))[0];
 }
 
 async function extractDetailedLocationFromTikTokInternal(videoData: any): Promise<DetailedLocationResult> {
@@ -310,34 +345,48 @@ EXAMPLES:
 
 Return ONLY valid JSON:`;
 
-    const textCompletion = await client.chat.completions.create({
-      model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",
-      messages: [
-        {
-          role: "user",
-          content: textPrompt
-        }
-      ],
-      max_tokens: 300,
-      temperature: 0.1
-    });
-
     let textResult: any = null;
-    const textContent = textCompletion.choices[0]?.message?.content?.trim();
-
-    if (textContent) {
+    const MAX_TEXT_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_TEXT_RETRIES; attempt++) {
       try {
-        textResult = JSON.parse(textContent);
-        console.log(`📝 Text analysis result:`, textResult);
-      } catch (e) {
-        console.log(`⚠️ Failed to parse text analysis result:`, textContent);
+        const textCompletion = await client.chat.completions.create({
+          model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",
+          messages: [
+            { role: "user", content: textPrompt }
+          ],
+          max_tokens: 300,
+          temperature: 0.1
+        });
+
+        const textContent = textCompletion.choices[0]?.message?.content?.trim();
+        if (textContent) {
+          try {
+            textResult = JSON.parse(textContent);
+            console.log(`📝 Text analysis result:`, textResult);
+          } catch (e) {
+            console.log(`⚠️ Failed to parse text analysis result:`, textContent);
+          }
+        }
+        break;
+      } catch (error: any) {
+        if (error?.status === 429 && attempt < MAX_TEXT_RETRIES - 1) {
+          const retryAfterMs = parseInt(error?.headers?.get?.('retry-after-ms') || '0', 10) || (3000 * (attempt + 1));
+          console.log(`⏳ Rate limited on text analysis, waiting ${retryAfterMs}ms before retry ${attempt + 2}/${MAX_TEXT_RETRIES}...`);
+          await new Promise(resolve => setTimeout(resolve, retryAfterMs));
+        } else {
+          throw error;
+        }
       }
     }
 
-    // Now try to extract location from the cover image using vision model
+    // Skip image analysis if text already gave a high-confidence result
     let imageResult: any = null;
+    const textGaveUsableResult = textResult && (
+      (textResult.exact_location && textResult.confidence >= 0.7) ||
+      (textResult.all_locations?.length > 0 && textResult.confidence >= 0.7)
+    );
 
-    if (cover) {
+    if (cover && !textGaveUsableResult) {
       console.log(`🖼️ Analyzing cover image: ${cover}`);
 
       const imagePrompt = `You are a location identification expert for Melbourne/Victoria, Australia. This is a TikTok news video cover image about a crime or safety incident. Identify the location shown.
@@ -365,62 +414,85 @@ RESPONSE FORMAT (JSON only, no markdown):
 
 Return ONLY valid JSON, nothing else.`;
 
-      try {
-        const imageCompletion = await client.chat.completions.create({
-          model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: imagePrompt
-                },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: cover
-                  }
-                }
-              ]
+      const MAX_IMAGE_RETRIES = 3;
+      for (let attempt = 0; attempt < MAX_IMAGE_RETRIES; attempt++) {
+        try {
+          const imageCompletion = await client.chat.completions.create({
+            model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: imagePrompt },
+                  { type: "image_url", image_url: { url: cover } }
+                ]
+              }
+            ],
+            max_tokens: 200,
+            temperature: 0.1
+          });
+
+          const imageContent = imageCompletion.choices[0]?.message?.content?.trim();
+
+          if (imageContent) {
+            console.log(`🖼️ Image analysis result: "${imageContent}"`);
+
+            let cleanJson = imageContent
+              .replace(/```json\s*/g, '')
+              .replace(/```\s*/g, '')
+              .trim();
+
+            const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              cleanJson = jsonMatch[0];
             }
-          ],
-          max_tokens: 200,
-          temperature: 0.1
-        });
 
-        const imageContent = imageCompletion.choices[0]?.message?.content?.trim();
-
-        if (imageContent) {
-          console.log(`🖼️ Image analysis result: "${imageContent}"`);
-
-          // The prompt asks for JSON directly — try to parse it
-          let cleanJson = imageContent
-            .replace(/```json\s*/g, '')
-            .replace(/```\s*/g, '')
-            .trim();
-
-          const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            cleanJson = jsonMatch[0];
+            try {
+              imageResult = JSON.parse(cleanJson);
+              console.log(`📋 Image result:`, imageResult);
+            } catch {
+              console.log(`⚠️ Failed to parse image result as JSON, skipping`);
+            }
+          } else {
+            console.log(`🖼️ No identifiable location in cover image`);
           }
-
-          try {
-            imageResult = JSON.parse(cleanJson);
-            console.log(`📋 Image result:`, imageResult);
-          } catch {
-            console.log(`⚠️ Failed to parse image result as JSON, skipping`);
+          break; // success — exit retry loop
+        } catch (error: any) {
+          if (error?.status === 429 && attempt < MAX_IMAGE_RETRIES - 1) {
+            const retryAfterMs = parseInt(error?.headers?.get?.('retry-after-ms') || '0', 10) || (2000 * (attempt + 1));
+            console.log(`⏳ Rate limited on image analysis, waiting ${retryAfterMs}ms before retry ${attempt + 2}/${MAX_IMAGE_RETRIES}...`);
+            await new Promise(resolve => setTimeout(resolve, retryAfterMs));
+          } else {
+            console.log(`⚠️ Image analysis failed (attempt ${attempt + 1}):`, error?.message || error);
+            break;
           }
-        } else {
-          console.log(`🖼️ No identifiable location in cover image`);
         }
-      } catch (error) {
-        console.log(`⚠️ Image analysis failed:`, error);
       }
+    } else if (textGaveUsableResult) {
+      console.log(`⚡ Skipping image analysis — text already gave usable location`);
     }
 
     // Combine results from text and image analysis with improved logic
     console.log(`🔄 Combining text and image analysis results...`);
+
+    const fallbackSpecificTextLocation =
+      textResult?.all_locations?.length ? pickMostSpecificMelbourneLocation(textResult.all_locations) : undefined;
+    const rawTextExactLocation = textResult?.exact_location?.trim();
+    const shouldPromoteSpecificFromAll =
+      !!rawTextExactLocation &&
+      isGenericMelbourneFallbackLocation(rawTextExactLocation) &&
+      !!fallbackSpecificTextLocation;
+
+    const preferredTextExactLocation = shouldPromoteSpecificFromAll
+      ? appendVicSuffixIfNeeded(fallbackSpecificTextLocation!)
+      : rawTextExactLocation;
+    const preferredTextAllLocations = textResult?.all_locations || [];
+
+    if (shouldPromoteSpecificFromAll) {
+      console.log(
+        `🎯 Promoting specific all_locations candidate "${preferredTextExactLocation}" over generic exact_location "${rawTextExactLocation}"`
+      );
+    }
 
     // Priority 1: High-confidence image results
     if (imageResult && imageResult.exact_location && imageResult.confidence > 0.8) {
@@ -434,12 +506,12 @@ Return ONLY valid JSON, nothing else.`;
     }
 
     // Priority 2: High-confidence text results
-    if (textResult && textResult.exact_location && textResult.confidence > 0.8) {
-      console.log(`📝 Using high-confidence text-based location: "${textResult.exact_location}"`);
+    if (textResult && preferredTextExactLocation && textResult.confidence > 0.8) {
+      console.log(`📝 Using high-confidence text-based location: "${preferredTextExactLocation}"`);
       return {
         success: true,
-        exact_location: textResult.exact_location,
-        all_locations: textResult.all_locations || [],
+        exact_location: preferredTextExactLocation,
+        all_locations: preferredTextAllLocations,
         confidence: textResult.confidence
       };
     }
@@ -455,12 +527,12 @@ Return ONLY valid JSON, nothing else.`;
       };
     }
 
-    if (textResult && textResult.exact_location && textResult.confidence > 0.5) {
-      console.log(`📝 Using medium-confidence text-based location: "${textResult.exact_location}"`);
+    if (textResult && preferredTextExactLocation && textResult.confidence > 0.5) {
+      console.log(`📝 Using medium-confidence text-based location: "${preferredTextExactLocation}"`);
       return {
         success: true,
-        exact_location: textResult.exact_location,
-        all_locations: textResult.all_locations || [],
+        exact_location: preferredTextExactLocation,
+        all_locations: preferredTextAllLocations,
         confidence: textResult.confidence
       };
     }
@@ -472,79 +544,67 @@ Return ONLY valid JSON, nothing else.`;
         success: true,
         exact_location: imageResult.exact_location,
         all_locations: [imageResult.exact_location],
-        confidence: Math.max(imageResult.confidence || 0.3, 0.3) // Minimum 0.3 confidence
+        confidence: Math.max(imageResult.confidence || 0.3, 0.3)
       };
     }
 
-    if (textResult && textResult.exact_location) {
-      console.log(`📝 Using low-confidence text-based location as fallback: "${textResult.exact_location}"`);
+    if (textResult && preferredTextExactLocation) {
+      console.log(`📝 Using low-confidence text-based location as fallback: "${preferredTextExactLocation}"`);
       return {
         success: true,
-        exact_location: textResult.exact_location,
-        all_locations: textResult.all_locations || [],
-        confidence: Math.max(textResult.confidence || 0.3, 0.3) // Minimum 0.3 confidence
+        exact_location: preferredTextExactLocation,
+        all_locations: preferredTextAllLocations,
+        confidence: Math.max(textResult.confidence || 0.3, 0.3)
       };
     }
 
-    // Priority 5: Attempt to extract location from title using regex patterns
-    console.log(`🔍 Attempting regex-based location extraction as final fallback`);
-    const titleText = title.toLowerCase();
-
-    // Common Indonesian location patterns
-    const locationPatterns = [
-      /(?:di|depan|dekat)\s+([^,.\n]+(?:dpr|mp|istana|polda|kodam|monas|bundaran)[^,.\n]*)/i,
-      /(?:jalan|jl\.?)\s+([^,.\n]+(?:sudirman|thamrin|gatot|mh\.)[^,.\n]*)/i,
-      /(?:kawasan|daerah)\s+([^,.\n]+)/i,
-      /(?:jakarta|pala|bandung|surabaya|yogyakarta|semarang)\s+(?:pusat|utara|selatan|timur|barat)/i,
-      /(?:gedung|kantor)\s+([^,.\n]+)/i
-    ];
-
-    for (const pattern of locationPatterns) {
-      const match = titleText.match(pattern);
-      if (match && match[1]) {
-        const extractedLocation = match[1].trim();
-        if (extractedLocation.length > 3) { // Avoid very short matches
-          console.log(`🎯 Regex fallback found location: "${extractedLocation}"`);
-          return {
-            success: true,
-            exact_location: extractedLocation,
-            all_locations: [extractedLocation],
-            confidence: 0.4 // Low confidence for regex fallback
-          };
-        }
-      }
-    }
-
-    // Final fallback: try to find any Indonesian city/province names
-    const indonesianLocations = [
-      // Major cities
-      'jakarta', 'bandung', 'surabaya', 'medan', 'semarang', 'yogyakarta', 'palembang',
-      'makassar', 'pekanbaru', 'padang', 'batam', 'malang', 'samarinda', 'denpasar',
-      'manado', 'palu', 'kendari', 'gorontalo', 'ambon', 'sofifi', 'jayapura', 'manokwari',
-      'pontianak', 'palangka raya', 'banjarmasin', 'tanjung selor', 'mamuju', 'nabire',
-      'jayawijaya', 'merauke', 'sorong', 'tanjung pinang', 'jambi', 'bengkulu',
-      'bandar lampung', 'pangkal pinang', 'serang', 'kupang', 'mataram', 'banda aceh',
-
-      // Provinces
-      'bali', 'jawa barat', 'jawa tengah', 'jawa timur', 'banten', 'nusa tenggara barat',
-      'nusa tenggara timur', 'sumatera utara', 'sumatera barat', 'riau', 'kepulauan riau',
-      'jambi', 'sumatera selatan', 'bengkulu', 'lampung', 'bangka belitung',
-      'kalimantan barat', 'kalimantan tengah', 'kalimantan selatan', 'kalimantan timur',
-      'kalimantan utara', 'sulawesi utara', 'sulawesi tengah', 'sulawesi selatan',
-      'sulawesi tenggara', 'gorontalo', 'sulawesi barat', 'maluku', 'maluku utara',
-      'papua barat', 'papua', 'papua tengah', 'papua pegunungan', 'papua selatan',
-      'papua barat daya', 'aceh', 'dki jakarta'
-    ];
-
-    for (const location of indonesianLocations) {
-      if (titleText.includes(location)) {
-        console.log(`🏙️ Found Indonesian location in title: "${location}"`);
+    // Priority 4b: exact_location is null but all_locations has entries — use most specific location
+    if (textResult && !preferredTextExactLocation && preferredTextAllLocations.length > 0) {
+      const specificLocation = pickMostSpecificMelbourneLocation(preferredTextAllLocations);
+      if (specificLocation) {
+        const normalizedSpecificLocation = appendVicSuffixIfNeeded(specificLocation);
+        console.log(`📝 exact_location was null but specific location found in all_locations: "${normalizedSpecificLocation}"`);
         return {
           success: true,
-          exact_location: location,
-          all_locations: [location],
-          confidence: 0.2 // Very low confidence
+          exact_location: normalizedSpecificLocation,
+          all_locations: preferredTextAllLocations,
+          confidence: Math.max(textResult.confidence || 0.2, 0.2)
         };
+      }
+      console.log(`⚠️ all_locations has entries but none are specific Melbourne/VIC locations — skipping: [${preferredTextAllLocations.join(', ')}]`);
+    }
+
+    // Priority 5: Regex fallback — only for text that explicitly mentions Melbourne/VIC
+    console.log(`🔍 Attempting regex-based location extraction as final fallback`);
+    const titleText = (title || '').toLowerCase();
+
+    const hasMelbourneContext = /melbourne|vic\b|victoria/i.test(titleText);
+    if (hasMelbourneContext) {
+      const vicLocationPatterns = [
+        /(?:in|at|near|outside)\s+([\w\s]+(?:station|square|street|st|road|rd|avenue|ave|parade|mall|park|gardens?))\b/i,
+        /(?:in|at|near)\s+([\w\s]+(?:melbourne|vic|victoria)[\w\s]*)/i,
+        /(?:melbourne'?s?\s+)([\w\s-]+)/i,
+      ];
+
+      for (const pattern of vicLocationPatterns) {
+        const match = titleText.match(pattern);
+        if (match && match[1]) {
+          const extractedLocation = match[1].trim();
+          if (extractedLocation.length > 3 && isMelbourneVicLocation(extractedLocation)) {
+            const loc = extractedLocation.toLowerCase().includes('vic') ? extractedLocation : `${extractedLocation}, VIC`;
+            if (isGenericMelbourneFallbackLocation(loc)) {
+              console.log(`⚠️ Regex fallback returned broad location "${loc}" — skipping`);
+              continue;
+            }
+            console.log(`🎯 Regex fallback found VIC location: "${loc}"`);
+            return {
+              success: true,
+              exact_location: loc,
+              all_locations: [loc],
+              confidence: 0.4
+            };
+          }
+        }
       }
     }
 
@@ -563,10 +623,19 @@ Return ONLY valid JSON, nothing else.`;
   }
 }
 
-// Wrapper function for TikTok detailed location extraction.
-// scraper can be repurposed for other regions (e.g. Melbourne incidents).
 export async function extractDetailedLocationFromTikTok(videoData: any): Promise<DetailedLocationResult> {
   const result = await extractDetailedLocationFromTikTokInternal(videoData);
+
+  if (result.success && result.exact_location && isGenericMelbourneFallbackLocation(result.exact_location)) {
+    console.log(`🚫 Rejected broad fallback location: "${result.exact_location}"`);
+    return { success: false, error: `Location "${result.exact_location}" is too broad` };
+  }
+
+  if (result.success && result.exact_location && !isMelbourneVicLocation(result.exact_location)) {
+    console.log(`🚫 Rejected non-Melbourne/VIC location: "${result.exact_location}"`);
+    return { success: false, error: `Location "${result.exact_location}" is outside Melbourne/VIC` };
+  }
+
   return result;
 }
 

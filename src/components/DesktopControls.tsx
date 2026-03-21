@@ -7,8 +7,8 @@ interface DesktopControlsProps {
   mapStyle: string;
   mapboxStyles: Array<{ id: string; name: string; emoji: string; isCustom: boolean }>;
   changeMapStyle: (styleId: string) => void;
-  eventFilter: 'all' | 'warnings' | 'road_closures' | 'protests';
-  setEventFilter: (filter: 'all' | 'warnings' | 'road_closures' | 'protests') => void;
+  eventFilter: 'all' | 'crime' | 'sex_offenders';
+  setEventFilter: (filter: 'all' | 'crime' | 'sex_offenders') => void;
 }
 
 export const DesktopControls: React.FC<DesktopControlsProps> = ({
@@ -141,8 +141,7 @@ export const DesktopControls: React.FC<DesktopControlsProps> = ({
       {/* Event Filter Toggle Button */}
       <button
         onClick={() => {
-          // Cycle through filters on desktop: protest -> road closure -> warning -> all -> protest...
-          const filters = ['protests', 'road_closures', 'warnings', 'all'] as const;
+          const filters = ['all', 'crime', 'sex_offenders'] as const;
           const currentIndex = filters.indexOf(eventFilter);
           const nextIndex = (currentIndex + 1) % filters.length;
           setEventFilter(filters[nextIndex]);
@@ -179,9 +178,8 @@ export const DesktopControls: React.FC<DesktopControlsProps> = ({
       >
         {(() => {
           switch (eventFilter) {
-            case 'protests': return <>💬 Protests</>;
-            case 'road_closures': return <>🚧 Road Closures</>;
-            case 'warnings': return <>⚠️ Warnings</>;
+            case 'crime': return <>⚠️ Crime</>;
+            case 'sex_offenders': return <>🔞 Sex Offenders</>;
             case 'all':
             default: return <>📍 All Events</>;
           }

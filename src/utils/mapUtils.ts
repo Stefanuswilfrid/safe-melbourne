@@ -25,7 +25,7 @@ export const createEventGeoJSON = (events: Event[]) => {
         reason: event.reason,
         affectedRoutes: event.affectedRoutes,
         alternativeRoutes: event.alternativeRoutes,
-        emoji: event.type === 'protest' ? '🔥' : event.type === 'road_closure' ? '🚧' : event.type === 'warning' ? '⚠️' : '📍',
+        emoji: event.type === 'sex_offender' ? '🔞' : event.type === 'crime' ? '⚠️' : '📍',
         // Warning-specific properties
         tweetId: event.tweetId,
         extractedLocation: event.extractedLocation,

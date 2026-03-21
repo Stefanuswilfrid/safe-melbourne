@@ -13,7 +13,7 @@ export const ensureMarkersRender = (
   initialMarkersRenderedRef: React.MutableRefObject<boolean>,
   retryScheduledRef: React.MutableRefObject<boolean>,
   setRenderingMarkers: React.Dispatch<React.SetStateAction<boolean>>,
-  eventFilter: 'all' | 'warnings' | 'road_closures' | 'protests',
+  eventFilter: 'all' | 'crime' | 'sex_offenders',
   updateMapMarkers: () => void
 ) => {
   console.log('🔍 DEBUG ensureMarkersRender called:', {
@@ -112,7 +112,7 @@ export const ensureMarkersRender = (
 export const updateMapMarkers = (
   map: React.MutableRefObject<mapboxgl.Map | null>,
   events: Event[],
-  eventFilter: 'all' | 'warnings' | 'road_closures' | 'protests',
+  eventFilter: 'all' | 'crime' | 'sex_offenders',
   retryScheduledRef: React.MutableRefObject<boolean>
 ) => {
   console.log('🎯 DEBUG: updateMapMarkers called');
@@ -136,14 +136,11 @@ export const updateMapMarkers = (
   // Filter events based on eventFilter state
   let filteredEvents = events;
   switch (eventFilter) {
-    case 'warnings':
-      filteredEvents = events.filter(event => event.type === 'warning');
+    case 'crime':
+      filteredEvents = events.filter(event => event.type === 'crime');
       break;
-    case 'road_closures':
-      filteredEvents = events.filter(event => event.type === 'road_closure');
-      break;
-    case 'protests':
-      filteredEvents = events.filter(event => event.type === 'protest');
+    case 'sex_offenders':
+      filteredEvents = events.filter(event => event.type === 'sex_offender');
       break;
     case 'all':
     default:
@@ -211,64 +208,33 @@ export const updateMapMarkers = (
       }
     });
 
-    // Add circle layer for individual protest events
+    // Crime events — gold
     map.current.addLayer({
-      id: 'protest-circles',
+      id: 'crime-circles',
       type: 'circle',
       source: 'events',
-      filter: ['all', ['==', ['get', 'type'], 'protest'], ['!', ['has', 'point_count']]],
+      filter: ['all', ['==', ['get', 'type'], 'crime'], ['!', ['has', 'point_count']]],
       paint: {
-        'circle-radius': 18,
-        'circle-color': '#ff4444',
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2,
-        'circle-opacity': 0.8
+        'circle-radius': 28,
+        'circle-color': '#FFD700',
+        'circle-stroke-color': '#FF4500',
+        'circle-stroke-width': 4,
+        'circle-opacity': 1.0
       }
     });
 
-    // Add circle layer for road closures
+    // Sex offender layer — purple
     map.current.addLayer({
-      id: 'road-closure-circles',
+      id: 'sex-offender-circles',
       type: 'circle',
       source: 'events',
-      filter: ['all', ['==', ['get', 'type'], 'road_closure'], ['!', ['has', 'point_count']]],
+      filter: ['all', ['==', ['get', 'type'], 'sex_offender'], ['!', ['has', 'point_count']]],
       paint: {
-        'circle-radius': [
-          'match',
-          ['get', 'severity'],
-          'low', 16,
-          'medium', 20,
-          'high', 24,
-          'critical', 28,
-          20 // default
-        ],
-        'circle-color': [
-          'match',
-          ['get', 'severity'],
-          'low', '#ffaa00',      // Orange for low
-          'medium', '#ff6600',   // Orange-red for medium
-          'high', '#ff0000',     // Red for high
-          'critical', '#990000', // Dark red for critical
-          '#ff0000' // default red
-        ],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 3,
-        'circle-opacity': 0.9
-      }
-    });
-
-    // Add circle layer for warning markers - BIGGER AND BRIGHTER
-    map.current.addLayer({
-      id: 'warning-circles',
-      type: 'circle',
-      source: 'events',
-      filter: ['all', ['==', ['get', 'type'], 'warning'], ['!', ['has', 'point_count']]],
-      paint: {
-        'circle-radius': 28,           // Much bigger than others (vs 18)
-        'circle-color': '#FFD700',     // Bright gold
-        'circle-stroke-color': '#FF4500', // Orange border for contrast
-        'circle-stroke-width': 4,      // Thicker border
-        'circle-opacity': 1.0          // Fully opaque
+        'circle-radius': 28,
+        'circle-color': '#9333ea',
+        'circle-stroke-color': '#6b21a8',
+        'circle-stroke-width': 4,
+        'circle-opacity': 1.0
       }
     });
 
@@ -280,11 +246,7 @@ export const updateMapMarkers = (
       filter: ['!', ['has', 'point_count']],
       layout: {
         'text-field': ['get', 'emoji'],
-        'text-size': [
-          'case',
-          ['==', ['get', 'type'], 'warning'], 28, // Bigger emoji for warnings
-          20 // Normal size for others
-        ],
+        'text-size': 28,
         'text-anchor': 'center',
         'text-justify': 'center',
         'text-allow-overlap': true
@@ -321,7 +283,7 @@ export const updateMapMarkers = (
     });
 
     // Add click events for individual events
-    ['protest-circles', 'road-closure-circles', 'warning-circles', 'event-emoji'].forEach(layerId => {
+    ['crime-circles', 'sex-offender-circles', 'event-emoji'].forEach(layerId => {
       if (!map.current) return;
       map.current.on('click', layerId, (e: any) => {
         const feature = e.features[0];

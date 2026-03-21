@@ -9,8 +9,8 @@ interface MobileFABProps {
   mapStyle: string;
   mapboxStyles: Array<{ id: string; name: string; emoji: string; isCustom: boolean }>;
   changeMapStyle: (styleId: string) => void;
-  eventFilter: 'all' | 'warnings' | 'road_closures' | 'protests';
-  setEventFilter: (filter: 'all' | 'warnings' | 'road_closures' | 'protests') => void;
+  eventFilter: 'all' | 'crime' | 'sex_offenders';
+  setEventFilter: (filter: 'all' | 'crime' | 'sex_offenders') => void;
 }
 
 export const MobileFAB: React.FC<MobileFABProps> = ({
@@ -132,7 +132,7 @@ export const MobileFAB: React.FC<MobileFABProps> = ({
         <button
           onClick={() => {
             // Cycle through filters on mobile: protest -> road closure -> warning -> all -> protest...
-            const filters = ['protests', 'road_closures', 'warnings', 'all'] as const;
+            const filters = ['all', 'crime', 'sex_offenders'] as const;
             const currentIndex = filters.indexOf(eventFilter);
             const nextIndex = (currentIndex + 1) % filters.length;
             setEventFilter(filters[nextIndex]);
@@ -168,9 +168,8 @@ export const MobileFAB: React.FC<MobileFABProps> = ({
         >
           {(() => {
             switch (eventFilter) {
-              case 'warnings': return '⚠️';
-              case 'road_closures': return '🚧';
-              case 'protests': return '💬';
+              case 'crime': return '⚠️';
+              case 'sex_offenders': return '🔞';
               default: return '📍';
             }
           })()}

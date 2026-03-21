@@ -7,7 +7,7 @@ interface MapOverlayProps {
   loading: boolean;
   error: string | null;
   events: Event[];
-  eventFilter: 'all' | 'warnings' | 'road_closures' | 'protests';
+  eventFilter: 'all' | 'crime' | 'sex_offenders';
   scrapingStatus: 'idle' | 'scraping' | 'completed' | 'error';
   renderingMarkers: boolean;
   nextUpdateTime: string;
@@ -88,17 +88,13 @@ export const MapOverlay: React.FC<MapOverlayProps> = ({
               let count = 0;
               let label = '';
               switch (eventFilter) {
-                case 'warnings':
-                  count = events.filter(e => e.type === 'warning').length;
-                  label = 'warnings';
+                case 'crime':
+                  count = events.filter(e => e.type === 'crime').length;
+                  label = 'crimes';
                   break;
-                case 'road_closures':
-                  count = events.filter(e => e.type === 'road_closure').length;
-                  label = 'road closures';
-                  break;
-                case 'protests':
-                  count = events.filter(e => e.type === 'protest').length;
-                  label = 'protests';
+                case 'sex_offenders':
+                  count = events.filter(e => e.type === 'sex_offender').length;
+                  label = 'sex offenders';
                   break;
                 case 'all':
                 default:
@@ -235,35 +231,25 @@ export const MapOverlay: React.FC<MapOverlayProps> = ({
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ 
-                    width: '12px', 
-                    height: '12px', 
+                    width: '14px', 
+                    height: '14px', 
                     borderRadius: '50%', 
-                    backgroundColor: '#ef4444',
-                    boxShadow: '0 1px 3px rgba(239, 68, 68, 0.3)'
+                    backgroundColor: '#FFD700',
+                    border: '2px solid #FF4500',
+                    boxShadow: '0 1px 3px rgba(255, 215, 0, 0.4)'
                   }}></div>
-                  <span style={{ fontWeight: '500' }}>Protest</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ 
-                    width: '12px', 
-                    height: '12px', 
-                    borderRadius: '50%', 
-                    backgroundColor: '#ff0000',
-                    border: '2px solid #ffffff',
-                    boxShadow: '0 1px 3px rgba(255, 0, 0, 0.4)'
-                  }}></div>
-                  <span style={{ fontWeight: '500' }}>Road Closure</span>
+                  <span style={{ fontWeight: '500' }}>Crime / Incident</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ 
                     width: '14px', 
                     height: '14px', 
                     borderRadius: '50%', 
-                    backgroundColor: '#fbbf24', 
-                    border: '2px solid #f59e0b',
-                    boxShadow: '0 1px 3px rgba(251, 191, 36, 0.4)'
+                    backgroundColor: '#9333ea',
+                    border: '2px solid #6b21a8',
+                    boxShadow: '0 1px 3px rgba(147, 51, 234, 0.4)'
                   }}></div>
-                  <span style={{ fontWeight: '500' }}>Warning</span>
+                  <span style={{ fontWeight: '500' }}>Sex Offender</span>
                 </div>
               </div>
             </div>

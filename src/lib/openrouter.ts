@@ -265,53 +265,48 @@ async function extractDetailedLocationFromTikTokInternal(videoData: any): Promis
     // First, try to extract location from text content
     console.log(`📝 Extracting location from text: "${title}"`);
 
-    const textPrompt = `You are a location extraction expert specializing in Melbourne/Victoria (Australia) protest locations. Analyze this TikTok video about protests/demonstrations.
+    const textPrompt = `You are a location extraction expert for Melbourne/Victoria, Australia. Extract any location mentioned in this TikTok video caption about a crime, incident, or safety event.
 
 VIDEO DATA:
 Title: "${title}"
 Author: "${author?.nickname || 'Unknown'}"
-Music: "${music_info?.title || 'Unknown'}"
 Region: "${region || 'Unknown'}"
 
-CRITICAL RULES - READ CAREFULLY:
-1. NEVER assume Melbourne unless EXPLICITLY mentioned in the text
-2. Be extremely specific about Australian geography (city/suburb/state)
-3. VIC = Victoria (state); CBD = Central Business District
-4. Prefer the most specific identifiable place (building/landmark > street > suburb > city > state)
-5. If multiple locations are mentioned, choose the one that is most likely the protest gathering point
+YOUR TASK: Find ANY location or place name mentioned in the title. Be aggressive — extract even vague area references.
+
+EXTRACTION RULES:
+1. Extract ANY suburb, street, station, landmark, or area reference
+2. Directional areas count: "Melbourne's south-west" → "South-West Melbourne, VIC"
+3. Relative areas count: "Melbourne's outer north" → "Outer North Melbourne, VIC"
+4. Suburb names are locations: "Noble Park", "Kew", "Mernda", "Werribee" → extract them
+5. Train stations count: "Mernda train station" → "Mernda Station, VIC"
+6. "the city" or "the CBD" or "Melbourne's CBD" → "Melbourne CBD, VIC"
+7. "western suburbs" → "Western Suburbs, Melbourne VIC"
+8. If the text mentions Melbourne or Victoria context, append ", VIC" to the location
+9. Return null ONLY if there is absolutely zero geographic information in the text
 
 LOCATION PRIORITY (most specific first):
-1. Specific venue/building: "Parliament House Victoria", "Melbourne Town Hall", "State Library Victoria"
-2. Landmark: "Federation Square", "Flinders Street Station", "Shrine of Remembrance", "NGV"
-3. Street + area: "Swanston St, Melbourne CBD", "Bourke St Mall, Melbourne"
-4. Suburb + state: "Carlton VIC", "Fitzroy VIC", "Richmond VIC"
-5. City/state only: "Melbourne", "Victoria"
+1. Named place: "Mernda train station", "Noble Park", "Bourke St Mall"
+2. Suburb: "Kew", "Carlton", "Footscray", "Dandenong"
+3. Area/direction: "Melbourne's south-west", "outer north"
+4. City: "Melbourne CBD"
 
-MELBOURNE / VICTORIA LOCATION HINTS:
-- Parliament House Victoria is on Spring St, East Melbourne
-- Common protest areas: Melbourne CBD, Parliament precinct, Fed Square, State Library
-- Key stations: Flinders Street Station, Southern Cross Station
-- Nearby cities sometimes mentioned: Geelong, Ballarat, Bendigo
-- Common suburbs: Carlton, Fitzroy, Richmond, Southbank, Docklands, St Kilda
-
-VALIDATION CHECKS:
--- If you see "VIC" or "Victoria" → prefer the Victorian location context
--- If you see "CBD" → interpret as Melbourne CBD unless another city is clearly specified
--- If a landmark/station is mentioned, prefer that over a generic city label
-
-RESPONSE FORMAT (JSON only):
+RESPONSE FORMAT (JSON only, no markdown):
 {
-  "exact_location": "Parliament House Victoria, Melbourne VIC" | null,
-  "all_locations": ["Parliament House Victoria", "Spring St", "Melbourne", "VIC"],
-  "confidence": 0.95
+  "exact_location": "Noble Park, VIC" | null,
+  "all_locations": ["Noble Park", "Melbourne"],
+  "confidence": 0.8
 }
 
 EXAMPLES:
-✅ "Protest at Parliament House" → {"exact_location": "Parliament House Victoria, Melbourne VIC", "all_locations": ["Parliament House Victoria", "Spring St", "Melbourne", "VIC"], "confidence": 0.95}
-✅ "Rally at Fed Square" → {"exact_location": "Federation Square, Melbourne VIC", "all_locations": ["Federation Square", "Melbourne", "VIC"], "confidence": 0.95}
-✅ "March along Swanston St in the CBD" → {"exact_location": "Swanston St, Melbourne CBD", "all_locations": ["Swanston St", "Melbourne CBD", "Melbourne", "VIC"], "confidence": 0.9}
-✅ "Gathering outside Flinders Street Station" → {"exact_location": "Flinders Street Station, Melbourne VIC", "all_locations": ["Flinders Street Station", "Melbourne", "VIC"], "confidence": 0.95}
-❌ "Protest happening today" → {"exact_location": null, "all_locations": [], "confidence": 0.0}
+✅ "stabbed to death in Melbourne's south-west" → {"exact_location": "South-West Melbourne, VIC", "all_locations": ["South-West Melbourne", "Melbourne"], "confidence": 0.7}
+✅ "assaulted by a group of men in Noble Park" → {"exact_location": "Noble Park, VIC", "all_locations": ["Noble Park"], "confidence": 0.9}
+✅ "stabbing of a teenage girl in Kew" → {"exact_location": "Kew, VIC", "all_locations": ["Kew", "Melbourne"], "confidence": 0.9}
+✅ "found fatally stabbed in Melbourne's CBD" → {"exact_location": "Melbourne CBD, VIC", "all_locations": ["Melbourne CBD", "Melbourne"], "confidence": 0.9}
+✅ "Mernda train station in Melbourne's outer north" → {"exact_location": "Mernda Station, VIC", "all_locations": ["Mernda Station", "Mernda", "Melbourne"], "confidence": 0.95}
+✅ "bus stop stabbing in the western suburbs" → {"exact_location": "Western Suburbs, Melbourne VIC", "all_locations": ["Western Suburbs", "Melbourne"], "confidence": 0.6}
+✅ "attacked at a Melbourne primary school" → {"exact_location": "Melbourne, VIC", "all_locations": ["Melbourne"], "confidence": 0.5}
+❌ "Breaking news tonight" → {"exact_location": null, "all_locations": [], "confidence": 0.0}
 
 Return ONLY valid JSON:`;
 
@@ -345,48 +340,30 @@ Return ONLY valid JSON:`;
     if (cover) {
       console.log(`🖼️ Analyzing cover image: ${cover}`);
 
-      const imagePrompt = `You are a location identification expert specializing in Melbourne/Victoria (Australia) protest locations. Analyze this TikTok video cover image and identify the exact location shown.
+      const imagePrompt = `You are a location identification expert for Melbourne/Victoria, Australia. This is a TikTok news video cover image about a crime or safety incident. Identify the location shown.
 
-This is a TikTok video about protests/demonstrations in Melbourne/Victoria, Australia. Look for:
+Look for ANY of these in the image:
+- Text overlays showing suburb/location names (e.g., "South Melbourne", "Noble Park", "Dandenong")
+- Street signs, station names, building names
+- News ticker/banner text mentioning a location
+- Recognizable Melbourne landmarks or buildings
+- Victoria Police markings, court buildings
+- Any text or signage that indicates a place
 
-LOCATION IDENTIFIERS:
-- Government buildings: Parliament House Victoria, Melbourne Town Hall, Supreme Court of Victoria
-- Police: Victoria Police (stations/HQ), "POLICE" signage, "Victoria Police" markings
-- Famous landmarks: Federation Square, Flinders Street Station, Southern Cross Station, Shrine of Remembrance, NGV, Arts Centre Melbourne, MCG, Rod Laver Arena
-- Street signs: Swanston St, Collins St, Bourke St, Elizabeth St, Flinders St, Spring St, St Kilda Rd, etc.
-- Area/suburb names: Melbourne CBD, Carlton, Fitzroy, Richmond, Southbank, Docklands, St Kilda, etc.
-- Universities: University of Melbourne, RMIT University, Monash University (Caulfield), etc.
-- Text overlays or signs visible in the image
+RULES:
+1. Text overlays in news videos are the most reliable — prioritize them
+2. If you see a suburb name in text overlay, that IS the location
+3. Include ", VIC" for Victorian locations
+4. If you cannot identify ANY location, return exact_location as null
+5. Do NOT say "I'm unable to identify" — just return null in the JSON
 
-AUSTRALIAN GEOGRAPHY - CRITICAL RULES:
-1. VIC = Victoria (state); NSW = New South Wales (state)
-2. CBD = Central Business District (usually Melbourne CBD here)
-3. NEVER assume Melbourne unless you see "Melbourne" / "VIC" explicitly, or the landmark is uniquely Melbourne
-4. If a suburb is mentioned, include it with "VIC" when possible
+RESPONSE FORMAT (JSON only, no markdown):
+{
+  "exact_location": "South Melbourne, VIC" | null,
+  "confidence": 0.9 | 0.0
+}
 
-MELBOURNE / VICTORIA REFERENCE:
-- Common CBD landmarks: Federation Square, Flinders Street Station, State Library Victoria
-- Major roads/areas: Swanston St, Collins St, Bourke St Mall, St Kilda Rd, Spring St
-
-AUSTRALIA-SPECIFIC HINTS:
-- Look for "Victoria Police", "VIC", "Melbourne", "City of Melbourne"
-- Numbers after street names can indicate building/street numbers
-- "St" can mean "Street" or "Saint" depending on context (e.g., St Kilda)
-
-VALIDATION CHECKLIST:
-- If you see "VIC" → include Victoria context
-- If you see "CBD" → interpret as Melbourne CBD unless another city is explicit
-- If you see a landmark/station name, prefer that over generic "Melbourne"
-
-IMPORTANT:
-- Be VERY specific about the location (landmark/building/street/suburb)
-- Include suburb + state when available (e.g., "Carlton VIC")
-- If you see street names, include them with any numbers
-- Focus ONLY on Australian locations
-- If multiple possible locations, choose the most prominent one
-- NEVER default to Melbourne unless clearly supported by the image/text
-
-What exact location is shown in this image? Include the suburb/city and state (VIC) if identifiable.`;
+Return ONLY valid JSON, nothing else.`;
 
       try {
         const imageCompletion = await client.chat.completions.create({
@@ -414,67 +391,25 @@ What exact location is shown in this image? Include the suburb/city and state (V
 
         const imageContent = imageCompletion.choices[0]?.message?.content?.trim();
 
-        if (imageContent && !imageContent.includes("Unable to identify")) {
+        if (imageContent) {
           console.log(`🖼️ Image analysis result: "${imageContent}"`);
 
-          // Try to extract structured location from image analysis
-          const structuredPrompt = `Convert this location description into structured JSON format:
+          // The prompt asks for JSON directly — try to parse it
+          let cleanJson = imageContent
+            .replace(/```json\s*/g, '')
+            .replace(/```\s*/g, '')
+            .trim();
 
-Location description: "${imageContent}"
+          const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            cleanJson = jsonMatch[0];
+          }
 
-Return ONLY valid JSON format like this:
-{"exact_location": "the most specific location mentioned", "confidence": 0.9}
-
-If no clear location, return: {"exact_location": null, "confidence": 0.0}
-
-IMPORTANT: Return ONLY the JSON object, no markdown, no explanation, no backticks.`;
-
-          const structuredCompletion = await client.chat.completions.create({
-            model: process.env.OPENAI_LOCATION_MODEL || "gpt-4o-mini",
-            messages: [
-              {
-                role: "user",
-                content: structuredPrompt
-              }
-            ],
-            max_tokens: 150,
-            temperature: 0.1
-          });
-
-          const structuredContent = structuredCompletion.choices[0]?.message?.content?.trim();
-
-          if (structuredContent) {
-            let cleanJson = '';
-            try {
-              // Clean the response by removing markdown formatting and extra text
-              cleanJson = structuredContent
-                .replace(/```json\s*/g, '') // Remove ```json
-                .replace(/```\s*/g, '') // Remove ```
-                .replace(/^\s*[\w\s]*:\s*/g, '') // Remove any prefix text
-                .trim();
-
-              // Extract JSON if it's embedded in text
-              const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-              if (jsonMatch) {
-                cleanJson = jsonMatch[0];
-              }
-
-              imageResult = JSON.parse(cleanJson);
-              console.log(`📋 Structured image result:`, imageResult);
-            } catch (e) {
-              console.log(`⚠️ Failed to parse structured image result:`, structuredContent);
-              console.log(`🧹 Cleaned content was:`, cleanJson);
-
-              // Fallback: try to extract location manually from the original content
-              if (imageContent && imageContent.length > 10) {
-                console.log(`🔄 Attempting fallback extraction from original image content`);
-                imageResult = {
-                  exact_location: imageContent.split('.')[0].trim(), // Take first sentence
-                  confidence: 0.6 // Lower confidence for fallback
-                };
-                console.log(`📍 Fallback image result:`, imageResult);
-              }
-            }
+          try {
+            imageResult = JSON.parse(cleanJson);
+            console.log(`📋 Image result:`, imageResult);
+          } catch {
+            console.log(`⚠️ Failed to parse image result as JSON, skipping`);
           }
         } else {
           console.log(`🖼️ No identifiable location in cover image`);

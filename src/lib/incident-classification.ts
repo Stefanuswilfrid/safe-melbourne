@@ -1,49 +1,28 @@
-export type IncidentType = 'protest' | 'warning' | 'road_closure';
+export type IncidentType = 'crime' | 'sex_offender';
 
-const PROTEST_PATTERNS = [
-  /\bprotest(?:s|ing)?\b/i,
-  /\brally\b/i,
-  /\bmarch\b/i,
-  /\bdemonstration\b/i,
-  /\bactivis(?:m|ts?)\b/i,
-  /\bpicket\b/i,
-  /\bstrike\b/i,
-  /\bsit-?in\b/i,
-  /\bgather(?:ing)?\b/i,
-  /\bassembly\b/i,
-  /\bchant(?:ing)?\b/i,
-  /\bparliament steps\b/i,
-  /#protest\b/i,
-  /#rally\b/i,
-];
-
-const ROAD_CLOSURE_PATTERNS = [
-  /\broad closed\b/i,
-  /\broad closure\b/i,
-  /\blane closed\b/i,
-  /\blane closure\b/i,
-  /\bstreet closed\b/i,
-  /\btraffic diversion\b/i,
-  /\bdetour\b/i,
-  /\bavoid the area\b/i,
-  /\bblocked off\b/i,
-  /\bclosure in place\b/i,
+const SEX_OFFENDER_PATTERNS = [
+  /\bsex(?:ual)?\s+(?:assault|offend(?:er|ing)|abuse|harassment|predator|grooming)\b/i,
+  /\bsexually\s+(?:assault|abuse|harass)/i,
+  /\brape(?:d|s|r)?\b/i,
+  /\bpaedophile\b/i,
+  /\bpedophile\b/i,
+  /\bindecent\s+(?:exposure|act|assault)\b/i,
+  /\bsex\s+pest\b/i,
+  /\bchild\s+(?:abuse|exploitation|sex)\b/i,
+  /\bgrooming\b/i,
+  /#sexoffend/i,
+  /#rape\b/i,
+  /\bpervert\b/i,
+  /\bupskirt\b/i,
+  /\bvoyeur/i,
 ];
 
 export function classifyIncidentType(text: string): IncidentType {
   const normalizedText = text.trim();
 
-  if (!normalizedText) {
-    return 'warning';
+  if (normalizedText && SEX_OFFENDER_PATTERNS.some((pattern) => pattern.test(normalizedText))) {
+    return 'sex_offender';
   }
 
-  if (ROAD_CLOSURE_PATTERNS.some((pattern) => pattern.test(normalizedText))) {
-    return 'road_closure';
-  }
-
-  if (PROTEST_PATTERNS.some((pattern) => pattern.test(normalizedText))) {
-    return 'protest';
-  }
-
-  return 'warning';
+  return 'crime';
 }

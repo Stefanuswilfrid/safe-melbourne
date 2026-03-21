@@ -6,7 +6,7 @@ export const useEvents = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<number>(0); // Default to All time
-  const [eventFilter, setEventFilter] = useState<'all' | 'warnings' | 'road_closures' | 'protests'>('all');
+  const [eventFilter, setEventFilter] = useState<'all' | 'crime' | 'sex_offenders'>('all');
   const eventsLoadedRef = useRef<boolean>(false);
 
   // Function to fetch events from database

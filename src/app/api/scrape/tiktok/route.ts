@@ -376,7 +376,7 @@ export async function GET(request: NextRequest) {
   const limitParam = requestUrl.searchParams.get('limit');
   const requestedLimit = limitParam ? Number.parseInt(limitParam, 10) : undefined;
   const safeLimit = requestedLimit && Number.isFinite(requestedLimit)
-    ? Math.max(1, Math.min(50, requestedLimit))
+    ? Math.max(1, Math.min(100, requestedLimit))
     : undefined;
 
   // Check authentication: Vercel cron jobs or manual API calls
@@ -503,12 +503,11 @@ export async function GET(request: NextRequest) {
     let videos = await scrapeTikTokVideos(dateToday);
     console.log(`📹 Found ${videos.length} TikTok videos for incident search`);
 
-    // Hard cap the number of videos we pass through the heavy LLM/location pipeline
-    // to avoid blowing OpenAI token limits in a single run.
-    const MAX_LLM_VIDEOS = 3;
+    const DEFAULT_LLM_LIMIT = 10;
+    const effectiveLimit = safeLimit || DEFAULT_LLM_LIMIT;
     const originalCount = videos.length;
-    videos = videos.slice(0, Math.min(MAX_LLM_VIDEOS, safeLimit || MAX_LLM_VIDEOS));
-    console.log(`✂️  Limiting processing to first ${videos.length} of ${originalCount} videos to control LLM token usage`);
+    videos = videos.slice(0, effectiveLimit);
+    console.log(`✂️  Processing ${videos.length} of ${originalCount} videos (limit=${effectiveLimit})`);
 
     // Choose a smaller batch size for cron-triggered runs
     const dynamicBatchSize = isInternalCronCall ? 2 : 3;

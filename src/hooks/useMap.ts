@@ -53,7 +53,7 @@ export const useMap = (containerRef: React.RefObject<HTMLDivElement | null>) => 
       container: containerRef.current,
       style: initialStyleUrl,
       center: [144.9631, -37.8136], // Center on Melbourne
-      zoom: 11,
+      zoom: 10,
       attributionControl: false
     });
 
